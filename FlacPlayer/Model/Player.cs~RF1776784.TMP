@@ -1,0 +1,106 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using libZPlay;
+
+namespace FlacPlayer.Model
+{
+    public class Player : IPlayer
+    {
+        private ZPlay PlayerService;
+        private TCallbackFunc Callback;
+
+        public Player()
+        {
+            PlayerService = new ZPlay();
+        }
+
+        public void Play()
+        {
+            PlayerService.StartPlayback();
+        }
+
+        public void DemandPlay(string path, Action<string> callback)
+        {
+            string friendlyError = String.Empty;
+            ClearQueue();
+            if (PlayerService.OpenFile(path, TStreamFormat.sfAutodetect) == false)
+            {
+                string error = PlayerService.GetError();
+                switch (error)
+                {
+                    case "FLACDecoder: Function not supported.":
+                        RestartPlayer();
+                        DemandPlay(path, callback);
+                        break;
+                    case "FLACDecoder: This is not valid FLAC stream.":
+                        friendlyError = "The FLAC file was unable to be read properly. Please try another song.";
+                        RestartPlayer();
+                        break;
+                }
+            }
+            PlayerService.StartPlayback();
+            callback(friendlyError);
+        }
+
+        public void Pause()
+        {
+            PlayerService.PausePlayback();
+        }
+
+        public void AddFile(string path)
+        {
+            PlayerService.AddFile(path, TStreamFormat.sfAutodetect);
+        }
+
+        public void ClearQueue()
+        {
+            PlayerService.Close();
+        }
+
+        public TID3InfoEx GetID3Tags(string path)
+        {
+            TID3InfoEx id3Info = new TID3InfoEx();
+            PlayerService.LoadFileID3Ex(path, TStreamFormat.sfAutodetect, TID3Version.id3Version2, ref id3Info);
+            return id3Info;
+        }
+
+        public void SetSongFinishedCallback(TCallbackFunc callback)
+        {
+            PlayerService.SetCallbackFunc(callback, TCallbackMessage.MsgNextSong, 0);
+            if (Callback == null)
+            {
+                Callback = callback;
+            }
+        }
+
+        private void RestartPlayer()
+        {
+            PlayerService = new ZPlay();
+            SetSongFinishedCallback(Callback);
+        }
+
+        public TStreamTime GetDuration()
+        {
+            TStreamInfo info = new TStreamInfo();
+            PlayerService.GetStreamInfo(ref info);
+            return info.Length;
+        }
+
+        public TStreamTime GetPosition()
+        {
+            TStreamTime time = new TStreamTime();
+            PlayerService.GetPosition(ref time);
+            return time;
+        }
+
+        public bool PlayingStatus()
+        {
+            TStreamStatus status = new TStreamStatus();
+            PlayerService.GetStatus(ref status);
+            return status.fPlay;
+        }
+    }
+}
