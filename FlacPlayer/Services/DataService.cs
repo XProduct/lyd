@@ -24,8 +24,15 @@ namespace FlacPlayer.Model
             song.Artist = file.Tag.FirstAlbumArtist ?? file.Tag.FirstPerformer ?? "Unknown";
             song.Album = file.Tag.Album;
             song.Track = (int)file.Tag.Track;
+        }
 
-            if (file.Tag.Pictures.Length > 0)
+        public BitmapImage GetAlbumImage(string path)
+        {
+            TagLib.File file = TagLib.File.Create(path);
+
+            BitmapImage bitmap = new BitmapImage(new Uri("Images/default-album-artwork.png", UriKind.Relative));
+
+            if (file != null && file.Tag.Pictures.Length > 0)
             {
                 // Load you image data in MemoryStream
                 TagLib.IPicture pic = file.Tag.Pictures[0];
@@ -33,20 +40,14 @@ namespace FlacPlayer.Model
                 ms.Seek(0, SeekOrigin.Begin);
 
                 // ImageSource for System.Windows.Controls.Image
-                BitmapImage bitmap = new BitmapImage();
+                bitmap = new BitmapImage();
                 bitmap.BeginInit();
                 bitmap.StreamSource = ms;
                 bitmap.EndInit();
-                bitmap.Freeze();
+            }
 
-                song.CoverArt = bitmap;
-            }
-            else
-            {
-                BitmapImage defaultAlbumArt = new BitmapImage(new Uri("Images/default-album-artwork.png", UriKind.Relative));
-                defaultAlbumArt.Freeze();
-                song.CoverArt = defaultAlbumArt;
-            }
+            bitmap.Freeze();
+            return bitmap;
         }
 
         public ObservableCollection<Song> GetSongs(string path)
@@ -113,14 +114,14 @@ namespace FlacPlayer.Model
             if (dirInfo.Name.Substring(0, 1) != ".")
             {
                 // Process the list of files found in the directory. 
-                string[] fileEntries = Directory.GetFiles(targetDirectory);
+                IEnumerable<string> fileEntries = Directory.EnumerateFiles(targetDirectory, "*", SearchOption.TopDirectoryOnly);
                 foreach (string fileName in fileEntries)
                 {
                     ProcessFile(fileName);
                 }
 
                 // Recurse into subdirectories of this directory. 
-                string[] subdirectoryEntries = Directory.GetDirectories(targetDirectory);
+                IEnumerable<string> subdirectoryEntries = Directory.EnumerateDirectories(targetDirectory, "*", SearchOption.TopDirectoryOnly);
                 foreach (string subdirectory in subdirectoryEntries)
                 {
                     ProcessDirectory(subdirectory);

@@ -1296,7 +1296,7 @@ namespace FlacPlayer.ViewModel
                     {
                         Title = song.Album,
                         Artist = song.Artist,
-                        CoverArt = song.CoverArt
+                        CoverArt = DataService.GetAlbumImage(song.Path)
                     });
                 }
             }

@@ -2,6 +2,7 @@
 using FlacPlayer.Model;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Windows.Media.Imaging;
 
 namespace FlacPlayer.Design
 {
@@ -10,6 +11,11 @@ namespace FlacPlayer.Design
         public void GetID3Tags(Song path)
         {
             //throw new NotImplementedException();
+        }
+
+        public BitmapImage GetAlbumImage(string path)
+        {
+            return null;
         }
 
         public ObservableCollection<string> GetSavedSearchFolders()
