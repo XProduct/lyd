@@ -18,6 +18,36 @@ namespace FlacPlayer.Model
         }
 
         /// <summary>
+        /// The <see cref="Disc" /> property's name.
+        /// </summary>
+        public const string DiscPropertyName = "Disc";
+
+        private int _disc = 1;
+
+        /// <summary>
+        /// Sets and gets the Disc property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public int Disc
+        {
+            get
+            {
+                return _disc;
+            }
+
+            set
+            {
+                if (_disc == value)
+                {
+                    return;
+                }
+
+                _disc = value;
+                RaisePropertyChanged(DiscPropertyName);
+            }
+        }
+
+        /// <summary>
         /// The <see cref="Track" /> property's name.
         /// </summary>
         public const string TrackPropertyName = "Track";

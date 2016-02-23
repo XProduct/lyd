@@ -1208,14 +1208,7 @@ namespace FlacPlayer.ViewModel
         private void UpdateCurrentSong(Song song)
         {
             CurrentPlayingSong = song;
-            if (CurrentPlayingSong.CoverArt != null)
-            {
-                CurrentPlayingSongCoverArt = CurrentPlayingSong.CoverArt;
-            }
-            else
-            {
-                CurrentPlayingSongCoverArt = null;
-            }
+            CurrentPlayingSongCoverArt = Albums.Where(x => x.Title == CurrentPlayingSong.Album).FirstOrDefault().CoverArt;
         }
 
         private void GetSongDuration()
@@ -1275,7 +1268,7 @@ namespace FlacPlayer.ViewModel
         private void OpenSelectedAlbum()
         {
             IsSelectedAlbumVisible = true;
-            SelectedAlbumSongs = new ObservableCollection<Song>(Songs.Where(x => x.Album == SelectedAlbum.Title).OrderBy(x => x.Track).ToList());
+            SelectedAlbumSongs = new ObservableCollection<Song>(Songs.Where(x => x.Album == SelectedAlbum.Title).OrderBy(x => x.Disc).ThenBy(y => y.Track).ToList());
         }
 
         private void CloseSelectedAlbum()
@@ -1300,6 +1293,8 @@ namespace FlacPlayer.ViewModel
                     });
                 }
             }
+
+            Albums.OrderBy(s => s.Title.StartsWith("A ", StringComparison.OrdinalIgnoreCase) || s.Title.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ? s.Title.Substring(s.Title.IndexOf(" ") + 1) : s.Title);
         }
 
         private void RefreshSongs()

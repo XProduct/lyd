@@ -23,6 +23,7 @@ namespace FlacPlayer.Model
 
             song.Artist = file.Tag.FirstAlbumArtist ?? file.Tag.FirstPerformer ?? "Unknown";
             song.Album = file.Tag.Album;
+            song.Disc = (int)file.Tag.Disc;
             song.Track = (int)file.Tag.Track;
         }
 
@@ -43,6 +44,8 @@ namespace FlacPlayer.Model
                 bitmap = new BitmapImage();
                 bitmap.BeginInit();
                 bitmap.StreamSource = ms;
+                bitmap.DecodePixelHeight = 512;
+                bitmap.DecodePixelWidth = 512;
                 bitmap.EndInit();
             }
 
