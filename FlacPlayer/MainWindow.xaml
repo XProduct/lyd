@@ -50,7 +50,7 @@
 
         <TextBlock Text="{Binding ErrorString}" Grid.Column="1" Grid.Row="1" Grid.ColumnSpan="3" Margin="0,5" />
 
-        <ListBox Grid.Column="0" Grid.Row="3" Grid.ColumnSpan="2" ItemsSource="{Binding MenuItems}" SelectedItem="{Binding SelectedMenuItem}" ItemContainerStyle="{StaticResource ListBoxItemBorderless}">
+        <ListBox Grid.Column="0" Grid.Row="3" Grid.ColumnSpan="2" ItemsSource="{Binding MenuItems}" SelectedItem="{Binding SelectedMenuItem}" ItemContainerStyle="{StaticResource ListBoxItemBorderless}" Margin="-8,0,0,0">
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <Grid>

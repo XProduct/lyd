@@ -55,7 +55,7 @@ namespace FlacPlayer.ViewModel
             // Event Listeners
             StartSongPositionListener();
 
-            
+
         }
 
         #endregion
@@ -1285,11 +1285,14 @@ namespace FlacPlayer.ViewModel
 
                 if (existingAlbum == null)
                 {
-                    Albums.Add(new Album()
+                    App.Current.Dispatcher.Invoke((Action)delegate // <--- HERE
                     {
-                        Title = song.Album,
-                        Artist = song.Artist,
-                        CoverArt = DataService.GetAlbumImage(song.Path)
+                        Albums.Add(new Album()
+                        {
+                            Title = song.Album,
+                            Artist = song.Artist,
+                            CoverArt = DataService.GetAlbumImage(song.Path)
+                        });
                     });
                 }
             }
@@ -1313,10 +1316,14 @@ namespace FlacPlayer.ViewModel
                 Songs = DataService.GetSongs(folder);
             }
 
-            // Load ID3 Tags
-            Task.Run(() => { LoadSongID3Tags(); }).Wait();
+            // Load ID3 Tags And Fill Albums
+            Task.Run(() =>
+            {
+                LoadSongID3Tags();
+                Songs.OrderBy(s => s.Artist.StartsWith("A ", StringComparison.OrdinalIgnoreCase) || s.Artist.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ? s.Artist.Substring(s.Artist.IndexOf(" ") + 1) : s.Artist);
 
-            RefreshAlbums();
+                RefreshAlbums();
+            });
         }
 
         private void SaveSettings()
