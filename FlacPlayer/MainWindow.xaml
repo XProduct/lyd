@@ -77,7 +77,7 @@
         <TextBlock Grid.Column="1" Grid.Row="7" Text="{Binding CurrentPlayingSong.Title}" />
         <TextBlock Grid.Column="1" Grid.Row="9" Text="{Binding CurrentPlayingSong.Artist}" />
 
-        <ListBox x:Name="songlist" ItemsSource="{Binding Songs}" SelectedItem="{Binding SelectedSong}" Grid.Column="3" Grid.Row="3" Grid.RowSpan="7" Visibility="{Binding IsSongsVisible, Converter={StaticResource BoolToCollapsed}}" Grid.ColumnSpan="2" Margin="0,18,23,5">
+        <ListBox x:Name="songlist" ItemsSource="{Binding Songs, IsAsync=True}" SelectedItem="{Binding SelectedSong}" Grid.Column="3" Grid.Row="3" Grid.RowSpan="7" Visibility="{Binding IsSongsVisible, Converter={StaticResource BoolToCollapsed}}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <Grid>
@@ -134,7 +134,7 @@
                             <ColumnDefinition Width="13" />
                         </Grid.ColumnDefinitions>
 
-                        <Image Source="{Binding CoverArt}" Grid.Column="1" Grid.Row="1" Width="178" Height="178" />
+                        <Image Source="{Binding CoverArt, IsAsync=True}" Grid.Column="1" Grid.Row="1" Width="178" Height="178" />
                         <TextBlock Text="{Binding Title}" Grid.Row="3" Grid.Column="1" />
                         <TextBlock Text="{Binding Artist}" Grid.Row="5" Grid.Column="1" />
                         <Polygon Points="0, 273 80, 273 80, 0 30, 0" Fill="{StaticResource StandardGray}" Grid.Column="1" Grid.Row="0" Grid.RowSpan="7" Grid.ColumnSpan="2" HorizontalAlignment="Right" />
