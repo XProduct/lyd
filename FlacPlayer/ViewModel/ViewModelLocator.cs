@@ -38,6 +38,7 @@ namespace FlacPlayer.ViewModel
             {
                 SimpleIoc.Default.Register<IDataService, DataService>();
                 SimpleIoc.Default.Register<IPlayer, Player>();
+                SimpleIoc.Default.Register<IWebSocketService, WebSocketService>();
             }
 
             SimpleIoc.Default.Register<MainViewModel>();

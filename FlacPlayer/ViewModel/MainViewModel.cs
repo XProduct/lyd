@@ -26,14 +26,16 @@ namespace FlacPlayer.ViewModel
 
         private readonly IDataService DataService;
         private readonly IPlayer Player;
+        private readonly IWebSocketService WebSocketService;
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
         /// </summary>
-        public MainViewModel(IDataService dataService, IPlayer player)
+        public MainViewModel(IDataService dataService, IPlayer player, IWebSocketService webSocketService)
         {
             DataService = dataService;
             Player = player;
+            WebSocketService = webSocketService;
 
             GetDesignData();
             RefreshSongs();
@@ -55,7 +57,8 @@ namespace FlacPlayer.ViewModel
             // Event Listeners
             StartSongPositionListener();
 
-
+            // Start Web Socket
+            WebSocketService.Start();
         }
 
         #endregion
