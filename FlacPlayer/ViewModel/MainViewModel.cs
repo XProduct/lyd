@@ -11,15 +11,10 @@ using System.Timers;
 using System.Linq;
 using System.Windows.Media.Imaging;
 using System.Threading;
+using System.Web.Mvc;
 
 namespace FlacPlayer.ViewModel
 {
-    /// <summary>
-    /// This class contains properties that the main View can data bind to.
-    /// <para>
-    /// See http://www.galasoft.ch/mvvm
-    /// </para>
-    /// </summary>
     public sealed class MainViewModel : ViewModelBase
     {
         #region Constructor
@@ -64,6 +59,36 @@ namespace FlacPlayer.ViewModel
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// The <see cref="IsErrorVisible" /> property's name.
+        /// </summary>
+        public const string IsErrorVisiblePropertyName = "IsErrorVisible";
+
+        private bool _IsErrorVisible = false;
+
+        /// <summary>
+        /// Sets and gets the IsErrorVisible property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public bool IsErrorVisible
+        {
+            get
+            {
+                return _IsErrorVisible;
+            }
+
+            set
+            {
+                if (_IsErrorVisible == value)
+                {
+                    return;
+                }
+
+                _IsErrorVisible = value;
+                RaisePropertyChanged(IsErrorVisiblePropertyName);
+            }
+        }
 
         /// <summary>
         /// The <see cref="CloseSelectedAlbumCommand" /> property's name.
@@ -1383,6 +1408,9 @@ namespace FlacPlayer.ViewModel
             {
                 IsSettingsVisible = false;
                 PercentageComplete = 35;
+
+                IsErrorVisible = true;
+                ErrorString = "Whoa buddy.";
             }
         }
 

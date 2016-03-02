@@ -8,7 +8,7 @@
         xmlns:conv="clr-namespace:FlacPlayer.Converters"
         xmlns:ignore="http://www.ignore.com"
         mc:Ignorable="d ignore"
-        Title="lyd" Width="1064" Height="648" Icon="pack://application:,,,/Images/lyd_logo.ico"
+        Title="lyd" Width="1364" Height="748" Icon="pack://application:,,,/Images/lyd_logo.ico"
         Style="{DynamicResource DefaultWindow}"
         DataContext="{Binding Main, Source={StaticResource Locator}}">
 
@@ -48,7 +48,20 @@
             <ColumnDefinition Width="12" />
         </Grid.ColumnDefinitions>
 
-        <TextBlock Text="{Binding ErrorString}" Grid.Column="1" Grid.Row="1" Grid.ColumnSpan="3" Margin="0,5" />
+        <Grid Grid.ColumnSpan="5" Grid.RowSpan="2" Background="{StaticResource PrimaryBlue}" Visibility="{Binding IsErrorVisible, Converter={StaticResource BoolToCollapsed}}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="12" />
+                <RowDefinition />
+                <RowDefinition Height="6" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition />
+                <ColumnDefinition Width="12" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Text="{Binding ErrorString}" Grid.Column="1" Grid.Row="1" Grid.ColumnSpan="3" Margin="0,5" />
+        </Grid>
 
         <ListBox Grid.Column="0" Grid.Row="3" Grid.ColumnSpan="2" ItemsSource="{Binding MenuItems}" SelectedItem="{Binding SelectedMenuItem}" ItemContainerStyle="{StaticResource ListBoxItemBorderless}" Margin="-8,0,0,0">
             <ListBox.ItemTemplate>
