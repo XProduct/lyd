@@ -211,18 +211,18 @@ namespace FlacPlayer
 
         protected int port;
         TcpListener listener;
-        bool is_active = true;
+        bool IsActive = true;
 
         public HttpServer(int port)
         {
             this.port = port;
         }
 
-        public void listen()
+        public void Listen()
         {
             listener = new TcpListener(port);
             listener.Start();
-            while (is_active)
+            while (IsActive)
             {
                 TcpClient s = listener.AcceptTcpClient();
                 HttpProcessor processor = new HttpProcessor(s, this);
@@ -230,6 +230,11 @@ namespace FlacPlayer
                 thread.Start();
                 Thread.Sleep(1);
             }
+        }
+
+        public void Stop()
+        {
+            IsActive = false;
         }
 
         public abstract void handleGETRequest(HttpProcessor p);

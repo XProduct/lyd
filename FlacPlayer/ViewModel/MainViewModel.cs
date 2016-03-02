@@ -11,7 +11,7 @@ using System.Timers;
 using System.Linq;
 using System.Windows.Media.Imaging;
 using System.Threading;
-using System.Web.Mvc;
+using System.Windows;
 
 namespace FlacPlayer.ViewModel
 {
@@ -65,8 +65,6 @@ namespace FlacPlayer.ViewModel
         /// </summary>
         public const string IsErrorVisiblePropertyName = "IsErrorVisible";
 
-        private bool _IsErrorVisible = false;
-
         /// <summary>
         /// Sets and gets the IsErrorVisible property.
         /// Changes to that property's value raise the PropertyChanged event. 
@@ -75,18 +73,7 @@ namespace FlacPlayer.ViewModel
         {
             get
             {
-                return _IsErrorVisible;
-            }
-
-            set
-            {
-                if (_IsErrorVisible == value)
-                {
-                    return;
-                }
-
-                _IsErrorVisible = value;
-                RaisePropertyChanged(IsErrorVisiblePropertyName);
+                return ErrorString.Length != 0;
             }
         }
 
@@ -824,6 +811,7 @@ namespace FlacPlayer.ViewModel
                 RaisePropertyChanging(ErrorStringPropertyName);
                 _ErrorString = value;
                 RaisePropertyChanged(ErrorStringPropertyName);
+                RaisePropertyChanged(IsErrorVisiblePropertyName);
             }
         }
 
@@ -1235,15 +1223,25 @@ namespace FlacPlayer.ViewModel
 
         private void UpdateCurrentSong(Song song)
         {
-            CurrentPlayingSong = song;
-            CurrentPlayingSongCoverArt = Albums.Where(x => x.Title == CurrentPlayingSong.Album).FirstOrDefault().CoverArt;
+            if (!String.IsNullOrEmpty(song.Path))
+            {
+                CurrentPlayingSong = song;
+                CurrentPlayingSongCoverArt = Albums.Where(x => x.Title == CurrentPlayingSong.Album).FirstOrDefault().CoverArt;
+            }
         }
 
         private void GetSongDuration()
         {
-            CurrentTrackDuration = Player.GetCurrentSongDuration() / 1000;
-            int currentSeconds = (int)CurrentTrackDuration;
-            Duration = currentSeconds / 60 + ":" + (currentSeconds % 60 < 10 ? "0" + currentSeconds % 60 : (currentSeconds % 60).ToString());
+            try {
+                CurrentTrackDuration = Player.GetCurrentSongDuration() / 1000;
+                int currentSeconds = (int)CurrentTrackDuration;
+                Duration = currentSeconds / 60 + ":" + (currentSeconds % 60 < 10 ? "0" + currentSeconds % 60 : (currentSeconds % 60).ToString());
+            }
+            catch
+            {
+                ErrorString = "Song Failed To Play";
+                Pause();
+            }
         }
 
         private void LoadSongID3Tags()
@@ -1338,6 +1336,10 @@ namespace FlacPlayer.ViewModel
                 ErrorString = "Add Folders Where You Store Your Music To Get Started!";
                 SelectedMenuItem = "Settings";
             }
+            else
+            {
+                ErrorString = string.Empty;
+            }
 
             foreach (string folder in MusicFolders)
             {
@@ -1395,12 +1397,12 @@ namespace FlacPlayer.ViewModel
             AddSongsToQueue();
         }
 
-        ////public override void Cleanup()
-        ////{
-        ////    // Clean up if needed
-
-        ////    base.Cleanup();
-        ////}
+        public override void Cleanup()
+        {
+            WebSocketService.Stop();
+            Application.Current.Shutdown();
+            base.Cleanup();
+        }
 
         private void GetDesignData()
         {
@@ -1408,8 +1410,7 @@ namespace FlacPlayer.ViewModel
             {
                 IsSettingsVisible = false;
                 PercentageComplete = 35;
-
-                IsErrorVisible = true;
+                
                 ErrorString = "Whoa buddy.";
             }
         }

@@ -48,9 +48,9 @@
             <ColumnDefinition Width="12" />
         </Grid.ColumnDefinitions>
 
-        <Grid Grid.ColumnSpan="5" Grid.RowSpan="2" Background="{StaticResource PrimaryBlue}" Visibility="{Binding IsErrorVisible, Converter={StaticResource BoolToCollapsed}}">
+        <Grid Grid.ColumnSpan="5" Grid.RowSpan="2" Background="{StaticResource PrimaryBlue}" Visibility="{Binding IsErrorVisible, Converter={StaticResource BoolToCollapsed}}" Margin="-8,0,-8,0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="12" />
+                <RowDefinition Height="6" />
                 <RowDefinition />
                 <RowDefinition Height="6" />
             </Grid.RowDefinitions>

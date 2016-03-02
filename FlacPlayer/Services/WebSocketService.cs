@@ -5,11 +5,19 @@ namespace FlacPlayer
 {
     public class WebSocketService : IWebSocketService
     {
+        HttpServer httpServer;
+        Thread httpThread;
+
         public void Start()
         {
-            HttpServer httpServer = new MyHttpServer(8080);
-            Thread thread = new Thread(new ThreadStart(httpServer.listen));
-            thread.Start();
+            httpServer = new MyHttpServer(8080);
+            httpThread = new Thread(new ThreadStart(httpServer.Listen));
+            httpThread.Start();
+        }
+
+        public void Stop()
+        {
+            httpServer.Stop();
         }
     }
 }

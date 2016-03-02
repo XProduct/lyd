@@ -9,5 +9,6 @@ namespace FlacPlayer
     public interface IWebSocketService
     {
         void Start();
+        void Stop();
     }
 }

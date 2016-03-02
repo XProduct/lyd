@@ -194,10 +194,14 @@
     </Content>
     <Resource Include="Images\lyd_logo.png" />
     <Resource Include="lyd_logo.ico" />
-    <Content Include="RawReferences\ikpFlac.dll" />
-    <Content Include="RawReferences\ikpMP3.dll" />
-    <Content Include="RawReferences\irrKlang.NET4.dll" />
-    <Content Include="RawReferences\taglib-sharp.dll" />
+    <EmbeddedResource Include="lib\ikpFlac.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="lib\ikpMP3.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <Content Include="lib\irrKlang.NET4.dll" />
+    <Content Include="lib\taglib-sharp.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

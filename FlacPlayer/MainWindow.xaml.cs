@@ -15,7 +15,7 @@ namespace FlacPlayer
         public MainWindow()
         {
             InitializeComponent();
-            Closing += (s, e) => ViewModelLocator.Cleanup();
+            Closing += (s, e) => (DataContext as GalaSoft.MvvmLight.ViewModelBase).Cleanup();
 
             this.CommandBindings.Add(new CommandBinding(SystemCommands.CloseWindowCommand, this.OnCloseWindow));
             this.CommandBindings.Add(new CommandBinding(SystemCommands.MaximizeWindowCommand, this.OnMaximizeWindow, this.OnCanResizeWindow));
