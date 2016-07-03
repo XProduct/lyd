@@ -3,6 +3,8 @@ using System.IO;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Windows.Media.Imaging;
+using System.Net.Sockets;
+using System.Net;
 
 namespace FlacPlayer.Model
 {
@@ -25,6 +27,9 @@ namespace FlacPlayer.Model
             song.Album = file.Tag.Album;
             song.Disc = (int)file.Tag.Disc;
             song.Track = (int)file.Tag.Track;
+            song.Depth = file.Properties.BitsPerSample;
+            song.Bitrate = file.Properties.AudioBitrate;
+            song.SampleRate = (double)file.Properties.AudioSampleRate / 1000.0;
         }
 
         public BitmapImage GetAlbumImage(string path)
@@ -105,6 +110,19 @@ namespace FlacPlayer.Model
                     writer.WriteLine(folder);
                 }
             }
+        }
+
+        public string GetLocalIPAddress()
+        {
+            var host = Dns.GetHostEntry(Dns.GetHostName());
+            foreach (var ip in host.AddressList)
+            {
+                if (ip.AddressFamily == AddressFamily.InterNetwork)
+                {
+                    return ip.ToString();
+                }
+            }
+            throw new Exception("Local IP Address Not Found!");
         }
 
         #region Helper Functions

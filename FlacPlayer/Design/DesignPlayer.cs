@@ -20,6 +20,11 @@ namespace FlacPlayer.Design
             throw new NotImplementedException();
         }
 
+        public bool IsFinished()
+        {
+            return false;
+        }
+
         public bool IsPlaying()
         {
             return true;
@@ -31,6 +36,11 @@ namespace FlacPlayer.Design
         }
 
         public void Play(string filepath = null)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void SetPlayPosition(int seconds)
         {
             throw new NotImplementedException();
         }

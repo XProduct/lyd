@@ -94,10 +94,12 @@
     <Reference Include="System" />
     <Reference Include="System.Data" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.Web" />
     <Reference Include="System.Web.Cors, Version=5.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
       <HintPath>..\packages\Microsoft.AspNet.Cors.5.0.0\lib\net45\System.Web.Cors.dll</HintPath>
       <Private>True</Private>
     </Reference>
+    <Reference Include="System.Web.Extensions" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Windows.Interactivity, Version=4.5.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
       <HintPath>..\packages\MvvmLightLibs.4.2.30.0\lib\net45\System.Windows.Interactivity.dll</HintPath>
@@ -124,6 +126,8 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="Classes\Helpers.cs" />
+    <Compile Include="Classes\HtmlData.cs" />
+    <Compile Include="Converters\BoolToColorConverter.cs" />
     <Compile Include="Converters\BoolToCollapsedConverter.cs" />
     <Compile Include="Converters\SubtractionConverter.cs" />
     <Compile Include="Converters\WidthToColumnCountConverter.cs" />
@@ -192,6 +196,9 @@
     <Content Include="Images\lyd_logo.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="LydRemote\songs.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Resource Include="Images\lyd_logo.png" />
     <Resource Include="lyd_logo.ico" />
     <EmbeddedResource Include="lib\ikpFlac.dll">
@@ -204,11 +211,23 @@
     <Content Include="lib\taglib-sharp.dll" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PostBuildEvent>
+    </PostBuildEvent>
+  </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
   </Target>
   <Target Name="AfterBuild">
   </Target>
-  -->
+    -->
+  <Target Name="AfterBuild">
+    <ItemGroup>
+      <MoveToLibFolder Include="$(OutputPath)*.dll ; $(OutputPath)*.pdb ; $(OutputPath)*.xml" />
+      <UnMovableLibs Include="$(OutputPath)lib\ikpFlac.dll ; $(OutputPath)lib\ikpMP3.dll" />
+    </ItemGroup>
+    <Move SourceFiles="@(MoveToLibFolder)" DestinationFolder="$(OutputPath)lib" OverwriteReadOnlyFiles="true" />
+    <Move SourceFiles="@(UnMovableLibs)" DestinationFolder="$(OutputPath)" OverwriteReadOnlyFiles="true" />
+  </Target>
 </Project>

@@ -1,0 +1,38 @@
+﻿body {
+    background-color: #1e1e1e;
+    color: #F4F4F5;
+    font-family: 'Oxygen', sans-serif;
+    font-size: 16px;
+    overflow-x: hidden;
+}
+
+button {
+    background-color: #6a49d6;
+    color: #F4F4F5;
+    font-size: 18px;
+    padding: 10px 23px;
+    border-radius: 0px;
+    border: 0px solid #000000;
+    outline: none;
+    margin-top: 10px;
+    margin-bottom: -5px;
+}
+
+    button:active {
+        background-color: #5a38d6;
+    }
+
+.container {
+    max-width: 928px;
+    margin: 0 auto;
+}
+
+.center {
+    margin: 0 auto;
+    text-align: center;
+}
+
+#hero {
+    max-width: 928px;
+    margin-bottom: 32px;
+}

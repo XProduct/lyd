@@ -11,11 +11,14 @@ namespace FlacPlayer.Model
     {
         public Song(string path, string title, string artist = null, string album = null)
         {
+            ID = Guid.NewGuid().ToString();
             Path = path;
             Title = title;
             Artist = artist;
             Album = album;
         }
+
+        public string ID { get; private set; }
 
         /// <summary>
         /// The <see cref="Disc" /> property's name.
@@ -171,6 +174,96 @@ namespace FlacPlayer.Model
         }
 
         /// <summary>
+        /// The <see cref="Depth" /> property's name.
+        /// </summary>
+        public const string DepthPropertyName = "Depth";
+
+        private double _Depth = 0;
+
+        /// <summary>
+        /// Sets and gets the Depth property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public double Depth
+        {
+            get
+            {
+                return _Depth;
+            }
+
+            set
+            {
+                if (_Depth == value)
+                {
+                    return;
+                }
+
+                _Depth = value;
+                RaisePropertyChanged(DepthPropertyName);
+            }
+        }
+
+        /// <summary>
+        /// The <see cref="Bitrate" /> property's name.
+        /// </summary>
+        public const string BitratePropertyName = "Bitrate";
+
+        private double _Bitrate = 0;
+
+        /// <summary>
+        /// Sets and gets the Bitrate property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public double Bitrate
+        {
+            get
+            {
+                return _Bitrate;
+            }
+
+            set
+            {
+                if (_Bitrate == value)
+                {
+                    return;
+                }
+
+                _Bitrate = value;
+                RaisePropertyChanged(BitratePropertyName);
+            }
+        }
+
+        /// <summary>
+        /// The <see cref="SampleRate" /> property's name.
+        /// </summary>
+        public const string SampleRatePropertyName = "SampleRate";
+
+        private double _SampleRate;
+
+        /// <summary>
+        /// Sets and gets the SampleRate property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public double SampleRate
+        {
+            get
+            {
+                return _SampleRate;
+            }
+
+            set
+            {
+                if (_SampleRate == value)
+                {
+                    return;
+                }
+
+                _SampleRate = value;
+                RaisePropertyChanged(SampleRatePropertyName);
+            }
+        }
+
+        /// <summary>
         /// The <see cref="CoverArt" /> property's name.
         /// </summary>
         public const string CoverArtPropertyName = "CoverArt";
@@ -198,6 +291,36 @@ namespace FlacPlayer.Model
                 RaisePropertyChanging(CoverArtPropertyName);
                 _CoverArt = value;
                 RaisePropertyChanged(CoverArtPropertyName);
+            }
+        }
+
+        /// <summary>
+        /// The <see cref="IsCurrentlyPlaying" /> property's name.
+        /// </summary>
+        public const string IsCurrentlyPlayingPropertyName = "IsCurrentlyPlaying";
+
+        private bool _IsCurrentlyPlaying = false;
+
+        /// <summary>
+        /// Sets and gets the IsCurrentlyPlaying property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public bool IsCurrentlyPlaying
+        {
+            get
+            {
+                return _IsCurrentlyPlaying;
+            }
+
+            set
+            {
+                if (_IsCurrentlyPlaying == value)
+                {
+                    return;
+                }
+
+                _IsCurrentlyPlaying = value;
+                RaisePropertyChanged(IsCurrentlyPlayingPropertyName);
             }
         }
 

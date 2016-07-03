@@ -5,8 +5,8 @@
 
     <SolidColorBrush x:Key="StandardGray" Color="#FF1E1E1E" />
     <SolidColorBrush x:Key="SecondaryGray" Color="#FF333333" />
-    <SolidColorBrush x:Key="PrimaryBlue" Color="#ff8e44ad" />
-    <SolidColorBrush x:Key="SecondaryBlue" Color="#ff9b59b6" />
+    <SolidColorBrush x:Key="PrimaryPurple" Color="#6a49d6" />
+    <SolidColorBrush x:Key="SecondaryPurple" Color="#5a38d6" />
     <SolidColorBrush x:Key="Foreground" Color="#FFF4F4F5" />
 
     <conv:BoolToCollapsedConverter x:Key="BoolToCollapsed" />
@@ -35,7 +35,7 @@
                             <Setter Property="Background" Value="{StaticResource SecondaryGray}" />
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter Property="Background" Value="{DynamicResource PrimaryBlue}" />
+                            <Setter Property="Background" Value="{DynamicResource PrimaryPurple}" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="false">
                             <Setter TargetName="contentPresenter" Property="Opacity" Value=".5" />
@@ -65,7 +65,7 @@
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="15" />
                                         </Grid.RowDefinitions>
-                                        <ContentPresenter Grid.Row="1" Grid.RowSpan="2" Margin="7"/>
+                                        <ContentPresenter Grid.Row="1" Grid.RowSpan="2" Margin="0 7 0 0"/>
                                         <Rectangle x:Name="HeaderBackground" Height="25" Fill="{DynamicResource StandardGray}" VerticalAlignment="Top" Grid.Row="0"/>
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" WindowChrome.IsHitTestVisibleInChrome="True" Grid.Row="0">
                                             <Button Command="{Binding Source={x:Static SystemCommands.MinimizeWindowCommand}}" ToolTip="minimize" Style="{StaticResource WindowButtonStyle}">
@@ -106,12 +106,12 @@
                                         <TextBlock x:Name="WindowTitleTextBlock" Grid.Row="0" Text="{TemplateBinding Title}" HorizontalAlignment="Left" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"  Margin="8 -1 0 0"  FontSize="16"  Foreground="{TemplateBinding Foreground}"/>
                                         <Grid Grid.Row="2">
                                             <Path x:Name="ResizeGrip" Visibility="Collapsed" Width="12" Height="12" Margin="1" HorizontalAlignment="Right"
-                                        Stroke="{StaticResource PrimaryBlue}" StrokeThickness="1" Stretch="None" Data="F1 M1,10 L3,10 M5,10 L7,10 M9,10 L11,10 M2,9 L2,11 M6,9 L6,11 M10,9 L10,11 M5,6 L7,6 M9,6 L11,6 M6,5 L6,7 M10,5 L10,7 M9,2 L11,2 M10,1 L10,3" />
+                                        Stroke="{StaticResource PrimaryPurple}" StrokeThickness="1" Stretch="None" Data="F1 M1,10 L3,10 M5,10 L7,10 M9,10 L11,10 M2,9 L2,11 M6,9 L6,11 M10,9 L10,11 M5,6 L7,6 M9,6 L11,6 M6,5 L6,7 M10,5 L10,7 M9,2 L11,2 M10,1 L10,3" />
                                         </Grid>
                                     </Grid>
                                 </AdornerDecorator>
                             </Border>
-                            <Border BorderBrush="{StaticResource PrimaryBlue}" BorderThickness="1" Visibility="{Binding IsActive, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type Window}}, Converter={StaticResource BoolToCollapsed}}" />
+                            <Border BorderBrush="{StaticResource PrimaryPurple}" BorderThickness="1" Visibility="{Binding IsActive, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type Window}}, Converter={StaticResource BoolToCollapsed}}" />
                         </Grid>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -319,7 +319,7 @@
                 <Setter Property="Background" Value="{StaticResource SecondaryGray}" />
             </Trigger>
             <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="{StaticResource PrimaryBlue}" />
+                <Setter Property="Background" Value="{StaticResource PrimaryPurple}" />
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -350,7 +350,7 @@
                 <Setter Property="Background" Value="{StaticResource SecondaryGray}" />
             </Trigger>
             <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="{StaticResource PrimaryBlue}" />
+                <Setter Property="Background" Value="{StaticResource PrimaryPurple}" />
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -359,7 +359,7 @@
 
     <Style TargetType="{x:Type ProgressBar}">
         <Setter Property="Background" Value="{x:Null}" />
-        <Setter Property="Foreground" Value="{StaticResource PrimaryBlue}" />
+        <Setter Property="Foreground" Value="{StaticResource PrimaryPurple}" />
 
         <Setter Property="Template">
             <Setter.Value>
@@ -389,9 +389,9 @@
 
                             <Polygon Points="7, 30 20, 30 20, 0" Fill="{StaticResource StandardGray}" Grid.Column="1" Grid.Row="0" Grid.RowSpan="3" Grid.ColumnSpan="2" HorizontalAlignment="Right" />
                         </Border>
-                        <Border x:Name="PART_Indicator" CornerRadius="0" BorderThickness="0" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" Margin="0" BorderBrush="{StaticResource PrimaryBlue}">
+                        <Border x:Name="PART_Indicator" CornerRadius="0" BorderThickness="0" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" Margin="0" BorderBrush="{StaticResource PrimaryPurple}">
                             <Grid ClipToBounds="True" x:Name="Animation">
-                                <Rectangle x:Name="PART_GlowRect" Width="100" HorizontalAlignment="Left" Fill="{StaticResource PrimaryBlue}" Margin="-100,0,0,0" />
+                                <Rectangle x:Name="PART_GlowRect" Width="100" HorizontalAlignment="Left" Fill="{StaticResource PrimaryPurple}" Margin="-100,0,0,0" />
                                 <Polygon Points="7, 30 20, 30 20, 0" Fill="#FFCDCDCD" Grid.Column="1" Grid.Row="0" Grid.RowSpan="3" Grid.ColumnSpan="2" HorizontalAlignment="Right" />
                             </Grid>
                         </Border>
@@ -411,7 +411,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RepeatButton">
-                    <Border  BorderThickness="1" BorderBrush="{StaticResource SecondaryGray}" Background="{StaticResource SecondaryGray}" Height="3"/>
+                    <Border  BorderThickness="1" BorderBrush="{StaticResource SecondaryGray}" Background="{StaticResource SecondaryGray}" Height="10"/>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -423,7 +423,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RepeatButton">
-                    <Border SnapsToDevicePixels="True" Background="{StaticResource PrimaryBlue}"  BorderThickness="1" BorderBrush="{StaticResource PrimaryBlue}" Height="3"/>
+                    <Border SnapsToDevicePixels="True" Background="{StaticResource PrimaryPurple}"  BorderThickness="1" BorderBrush="{StaticResource PrimaryPurple}" Height="10"/>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -435,7 +435,10 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Thumb">
-                    <Ellipse Height="10" Width="10" Fill="White"></Ellipse>
+                    <Grid>
+                        <Polygon Points="0,10 3, 0 13, 0 10, 10" Fill="{StaticResource Foreground}" MaxHeight="10" Margin="-3,0,0,0" />
+                        <Polygon Points="0,10 3, 0 4, 0 4, 10" Fill="{StaticResource SecondaryGray}" MaxHeight="10" Margin="4,0,0,0" />
+                    </Grid>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
@@ -456,7 +459,7 @@
                     <Thumb Style="{StaticResource SliderThumb}" />
                 </Track.Thumb>
                 <Track.IncreaseRepeatButton>
-                    <RepeatButton Style="{StaticResource SliderRepeatButton}" Command="Slider.IncreaseLarge" />
+                    <RepeatButton Style="{StaticResource SliderRepeatButton}" Command="Slider.IncreaseLarge" Margin="-3,0,0,0" />
                 </Track.IncreaseRepeatButton>
             </Track>
         </Grid>

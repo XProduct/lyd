@@ -1,9 +1,11 @@
-﻿using System;
+﻿using FlacPlayer.Model;
+using System;
 using System.Collections;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using System.Web.Script.Serialization;
 
 // offered to the public domain for any use with no restriction
 // and also with no warranty of any kind, please enjoy. - David Jeske. 
@@ -13,7 +15,6 @@ using System.Threading;
 
 namespace FlacPlayer
 {
-
     public class HttpProcessor
     {
         public TcpClient socket;
@@ -77,7 +78,14 @@ namespace FlacPlayer
                 Console.WriteLine("Exception: " + e.ToString());
                 writeFailure();
             }
-            outputStream.Flush();
+            try
+            {
+                outputStream.Flush();
+            }
+            catch
+            {
+                Console.WriteLine("Output Stream Could Not Be Flushed");
+            }
             // bs.Flush(); // flush any remaining output
             inputStream = null; outputStream = null; // bs = null;            
             socket.Close();
@@ -234,6 +242,7 @@ namespace FlacPlayer
 
         public void Stop()
         {
+            listener.Stop();
             IsActive = false;
         }
 
@@ -241,47 +250,99 @@ namespace FlacPlayer
         public abstract void handlePOSTRequest(HttpProcessor p, StreamReader inputData);
     }
 
-    public class MyHttpServer : HttpServer
+    public class LydHttpServer : HttpServer
     {
-        public MyHttpServer(int port)
+        public LydHttpServer(int port)
             : base(port)
         {
         }
+
         public override void handleGETRequest(HttpProcessor p)
         {
-
-            if (p.http_url.Equals("/Test.png"))
+            switch (p.http_url)
             {
-                Stream fs = File.Open("../../Test.png", FileMode.Open);
-
-                p.writeSuccess("image/png");
-                fs.CopyTo(p.outputStream.BaseStream);
-                p.outputStream.BaseStream.Flush();
+                case "/close":
+                    p.writeSuccess();
+                    p.outputStream.WriteLine(CloseDocument());
+                    break;
+                case "/":
+                case "/songs":
+                    p.writeSuccess();
+                    p.outputStream.WriteLine(SongsDocument());
+                    break;
+                case "/songs/current":
+                    p.writeSuccess();
+                    p.outputStream.WriteLine(CurrentSongJson());
+                    break;
+                default:
+                    Console.WriteLine("request: {0}", p.http_url);
+                    p.writeSuccess();
+                    p.outputStream.WriteLine("<html><body><h1>404 Not Found</h1>");
+                    p.outputStream.WriteLine("Current Time: " + DateTime.Now.ToString());
+                    p.outputStream.WriteLine("url : {0}", p.http_url);
+                    p.outputStream.WriteLine("</body></html>");
+                    break;
             }
-
-            Console.WriteLine("request: {0}", p.http_url);
-            p.writeSuccess();
-            p.outputStream.WriteLine("<html><body><h1>test server</h1>");
-            p.outputStream.WriteLine("Current Time: " + DateTime.Now.ToString());
-            p.outputStream.WriteLine("url : {0}", p.http_url);
-
-            p.outputStream.WriteLine("<form method=post action=/form>");
-            p.outputStream.WriteLine("<input type=text name=foo value=foovalue>");
-            p.outputStream.WriteLine("<input type=submit name=bar value=barvalue>");
-            p.outputStream.WriteLine("</form>");
         }
 
         public override void handlePOSTRequest(HttpProcessor p, StreamReader inputData)
         {
-            Console.WriteLine("POST request: {0}", p.http_url);
             string data = inputData.ReadToEnd();
 
-            p.writeSuccess();
-            p.outputStream.WriteLine("<html><body><h1>test server</h1>");
-            p.outputStream.WriteLine("<a href=/test>return</a><p>");
-            p.outputStream.WriteLine("postbody: <pre>{0}</pre>", data);
+            switch (p.http_url)
+            {
+                case "/songs/play":
+                    string songGuid = data.Replace("id=", string.Empty);
+                    HtmlData.OnPlaySong(songGuid);
+                    p.writeSuccess();
+                    break;
+                case "/songs/shuffle":
+                    HtmlData.OnShufflePlay();
+                    p.writeSuccess();
+                    break;
+                case "/songs/playpause":
+                    HtmlData.OnPlayPause();
+                    p.writeSuccess();
+                    break;
+                default:
+                    break;
+            }
+        }
 
+        private string CloseDocument()
+        {
+            return "<html><body>Closed</body></html>";
+        }
 
+        private string SongsDocument()
+        {
+            string tableHtml = string.Empty;
+
+            foreach (Song song in HtmlData.Songs)
+            {
+                tableHtml += "<tr onclick=\"playSong('" + song.ID + "')\">";
+                tableHtml += "<td>" + song.Title + "</td>";
+                tableHtml += "<td>" + song.Artist + "</td>";
+                tableHtml += "<td>" + song.Album + "</td>";
+                tableHtml += "</tr>";
+            }
+
+            string html = string.Empty;
+
+            using (StreamReader reader = new StreamReader("LydRemote\\songs.html"))
+            {
+                html = reader.ReadToEnd();
+            }
+
+            html = html.Replace("{0}", tableHtml);
+
+            return html;
+        }
+
+        private string CurrentSongJson()
+        {
+            var json = new JavaScriptSerializer().Serialize(HtmlData.CurrentSong);
+            return json;
         }
     }
 }

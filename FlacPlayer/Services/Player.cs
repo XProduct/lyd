@@ -47,7 +47,15 @@ namespace FlacPlayer.Model
 
         public long GetCurrentSongPlayTime()
         {
-            return playerStopWatch.ElapsedMilliseconds;
+            //return playerStopWatch.ElapsedMilliseconds;
+            if (currentSound != null && playerStopWatch.ElapsedMilliseconds > 0)
+            {
+                return currentSound.PlayPosition;
+            }
+            else
+            {
+                return -1;
+            }
         }
 
         public void SetPlayPosition(int seconds)
@@ -61,6 +69,11 @@ namespace FlacPlayer.Model
         bool IPlayer.IsPlaying()
         {
             return IsPlaying;
+        }
+
+        public bool IsFinished()
+        {
+            return currentSound == null ? false : currentSound.Finished;
         }
 
         public void Dispose()

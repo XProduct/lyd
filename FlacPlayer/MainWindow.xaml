@@ -17,6 +17,7 @@
             <conv:BoolToCollapsedConverter x:Key="BoolToCollapsed" />
             <conv:WidthToColumnCountConverter x:Key="WidthToColumn" />
             <conv:SubtractionConverter x:Key="Subtract" />
+            <conv:BoolToColorConverter x:Key="BoolToColor" />
 
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Skins/MainSkin.xaml" />
@@ -27,7 +28,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="12" />
-            <RowDefinition Height="32"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="6"/>
             <RowDefinition />
             <RowDefinition Height="6"/>
@@ -48,7 +49,7 @@
             <ColumnDefinition Width="12" />
         </Grid.ColumnDefinitions>
 
-        <Grid Grid.ColumnSpan="5" Grid.RowSpan="2" Background="{StaticResource PrimaryBlue}" Visibility="{Binding IsErrorVisible, Converter={StaticResource BoolToCollapsed}}" Margin="-8,0,-8,0">
+        <Grid Grid.ColumnSpan="5" Grid.RowSpan="2" Background="{StaticResource PrimaryPurple}" Visibility="{Binding IsErrorVisible, Converter={StaticResource BoolToCollapsed}}" Margin="-8,0,-8,0" Height="44">
             <Grid.RowDefinitions>
                 <RowDefinition Height="6" />
                 <RowDefinition />
@@ -109,13 +110,25 @@
                             <ColumnDefinition Width="3" />
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Text="{Binding Title}" Grid.Row="1" Grid.Column="1" />
-                        <TextBlock Text="{Binding Artist}" Grid.Row="1" Grid.Column="3" />
-                        <TextBlock Text="{Binding Album}" Grid.Row="1" Grid.Column="5" />
+                        <TextBlock Text="{Binding Title}" Grid.Row="1" Grid.Column="1" Foreground="{Binding IsCurrentlyPlaying, Converter={StaticResource BoolToColor}}" />
+                        <TextBlock Text="{Binding Artist}" Grid.Row="1" Grid.Column="3" Foreground="{Binding IsCurrentlyPlaying, Converter={StaticResource BoolToColor}}" />
+                        <TextBlock Text="{Binding Album}" Grid.Row="1" Grid.Column="5" Foreground="{Binding IsCurrentlyPlaying, Converter={StaticResource BoolToColor}}" />
                         <Polygon Points="7, 30 20, 30 30, 30 30, 0 20, 0" Fill="{StaticResource StandardGray}" Grid.Column="5" Grid.Row="0" Grid.RowSpan="3" Grid.ColumnSpan="2" HorizontalAlignment="Right" />
                     </Grid>
                 </DataTemplate>
             </ListBox.ItemTemplate>
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="{x:Type ListBoxItem}"  BasedOn="{StaticResource ListBoxItemBase}">
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{StaticResource SecondaryGray}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter Property="Background" Value="#ff2e2e2e" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </ListBox.ItemContainerStyle>
             <i:Interaction.Triggers>
                 <i:EventTrigger EventName="MouseDoubleClick">
                     <cmd:EventToCommand Command="{Binding Path=DataContext.PlayOnDemandCommand,ElementName=songlist}"/>
@@ -258,34 +271,58 @@
                 <Button Content="Add" Command="{Binding AddMusicFolderCommand}" />
             </StackPanel>
 
-            <Button Content="Save" Grid.Column="3" Grid.Row="5" HorizontalAlignment="Right" Command="{Binding SaveSettingsCommand}" />
+            <TextBlock Text="Lyd Remote" Grid.Column="1" Grid.Row="5" HorizontalAlignment="Left" FontSize="26" VerticalAlignment="Top" />
+            <TextBlock Text="beta" Grid.Column="1" Grid.Row="5"  FontSize="18" VerticalAlignment="Top" HorizontalAlignment="Right" Foreground="#fff1c40f" />
+            <TextBox Background="Transparent" Text="{Binding LydRemoteInstructions, Mode=OneWay}" IsReadOnly="True" Grid.Column="3" Grid.Row="5" BorderThickness="0" Foreground="{StaticResource Foreground}" />
+
+            <Button Content="Save" Grid.Column="3" Grid.Row="7" HorizontalAlignment="Right" Command="{Binding SaveSettingsCommand}" />
         </Grid>
 
         <StackPanel Grid.Column="1" Grid.Row="11" Orientation="Horizontal" Grid.ColumnSpan="3">
-            <Button Command="{Binding TogglePlayPauseCommand}" Visibility="{Binding IsPlaying, Converter={StaticResource BoolToCollapsed}, ConverterParameter=1}">
-                <Polygon Points="0, 0 0, 20 15, 10" Fill="White" />
+            <Button Command="{Binding TogglePlayPauseCommand}" Visibility="{Binding IsPlaying, Converter={StaticResource BoolToCollapsed}, ConverterParameter=1}" Width="51">
+                <Polygon Points="0, 0 0, 20 15, 10" Stroke="{StaticResource Foreground}" StrokeThickness="2" />
             </Button>
-            <Button Command="{Binding TogglePlayPauseCommand}" Visibility="{Binding IsPlaying, Converter={StaticResource BoolToCollapsed}}">
+            <Button Command="{Binding TogglePlayPauseCommand}" Visibility="{Binding IsPlaying, Converter={StaticResource BoolToCollapsed}}" Width="51">
                 <Grid>
-                    <Polyline Points="0, 0 0, 20" Stroke="White" StrokeThickness="5" />
-                    <Polyline Points="0, 0 0, 20" Stroke="White" StrokeThickness="5" Margin="10 0 0 0" />
+                    <Polyline Points="0, 0 0, 20" Stroke="White" StrokeThickness="3" />
+                    <Polyline Points="0, 0 0, 20" Stroke="White" StrokeThickness="3" Margin="10 0 0 0" />
                 </Grid>
             </Button>
             <TextBlock Text="{Binding CurrentPositionText}" VerticalAlignment="Center" Margin="7,0,7,0" Width="42" TextAlignment="Right" />
-            <ProgressBar Value="{Binding PercentageComplete}" Width="654" Height="10" Margin="0,2,0,0" />
+            <!--<ProgressBar Value="{Binding PercentageComplete}" Width="654" Height="10" Margin="0,2,0,0" />-->
+            <Slider Value="{Binding PercentageComplete}" Width="654" Height="10" Margin="0,2,0,0" Opacity="1" Minimum="0" Maximum="100" LargeChange="3">
+                <i:Interaction.Triggers>
+                    <i:EventTrigger EventName="PreviewMouseDown">
+                        <i:InvokeCommandAction Command="{Binding StopPrecentageUpdateCommand}" />
+                    </i:EventTrigger>
+                    <i:EventTrigger EventName="PreviewMouseUp">
+                        <i:InvokeCommandAction Command="{Binding StartPrecentageUpdateCommand}" />
+                    </i:EventTrigger>
+                </i:Interaction.Triggers>
+            </Slider>
+            <Polygon Points="0,10 3, 0 4, 0 4, 10" Fill="{StaticResource StandardGray}" MaxHeight="10" Margin="-4,2,0,0" />
             <TextBlock Text="{Binding Duration}" VerticalAlignment="Center" Margin="7,0,7,0" Width="42" />
             <Button Command="{Binding ToggleShuffleCommand}" Visibility="{Binding IsShuffleMode, Converter={StaticResource BoolToCollapsed}, ConverterParameter=1}">
                 <Grid>
-                    <Polyline Points="0, 4 4, 4 16, 16 20, 16" Stroke="White" StrokeThickness="3" />
-                    <Polyline Points="0, 16 4, 16 16, 4 20, 4" Stroke="White" StrokeThickness="3" />
+                    <Polyline Points="0, 4 4, 4 16, 16 20, 16" Stroke="White" StrokeThickness="2" />
+                    <Polyline Points="0, 16 4, 16 16, 4 20, 4" Stroke="White" StrokeThickness="2" />
                 </Grid>
             </Button>
             <Button Command="{Binding ToggleShuffleCommand}" Visibility="{Binding IsShuffleMode, Converter={StaticResource BoolToCollapsed}}">
                 <Grid>
-                    <Polyline Points="0, 4 4, 4 16, 16 20, 16" Stroke="{StaticResource PrimaryBlue}" StrokeThickness="3" />
-                    <Polyline Points="0, 16 4, 16 16, 4 20, 4" Stroke="{StaticResource PrimaryBlue}" StrokeThickness="3" />
+                    <Polyline Points="0, 4 4, 4 16, 16 20, 16" Stroke="{StaticResource PrimaryPurple}" StrokeThickness="2" />
+                    <Polyline Points="0, 16 4, 16 16, 4 20, 4" Stroke="{StaticResource PrimaryPurple}" StrokeThickness="2" />
                 </Grid>
             </Button>
+
+            <TextBlock Text="{Binding CurrentPlayingSong.SampleRate}" Margin="18,0,0,0" FontSize="12" />
+            <TextBlock Text=" kHz" FontSize="12" />
+            <Polyline Points="3, 0 0, 18" Stroke="{StaticResource Foreground}" StrokeThickness="1" Margin="6,8,6,0" />
+            <TextBlock Text="{Binding CurrentPlayingSong.Depth}" FontSize="12" />
+            <TextBlock Text=" bit" FontSize="12" />
+            <Polyline Points="3, 0 0, 18" Stroke="{StaticResource Foreground}" StrokeThickness="1" Margin="6,8,6,0" />
+            <TextBlock Text="{Binding CurrentPlayingSong.Bitrate}" FontSize="12" />
+            <TextBlock Text=" kbps" FontSize="12" />
         </StackPanel>
     </Grid>
 </Window>

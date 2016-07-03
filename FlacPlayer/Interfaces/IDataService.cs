@@ -17,5 +17,6 @@ namespace FlacPlayer.Model
         void SetSavedSearchFolders(ObservableCollection<string> folders);
 
         string OpenFolderBrowser();
+        string GetLocalIPAddress();
     }
 }

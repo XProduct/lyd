@@ -53,5 +53,10 @@ namespace FlacPlayer.Design
         {
            
         }
+
+        public string GetLocalIPAddress()
+        {
+            return "192.168.10.10";
+        }
     }
 }

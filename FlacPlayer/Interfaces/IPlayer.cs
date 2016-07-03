@@ -13,5 +13,7 @@ namespace FlacPlayer.Model
         long GetCurrentSongDuration();
         long GetCurrentSongPlayTime();
         bool IsPlaying();
+        bool IsFinished();
+        void SetPlayPosition(int seconds);
     }
 }

@@ -45,6 +45,10 @@ namespace FlacPlayer.ViewModel
             OpenAlbumCommand = new RelayCommand(OpenSelectedAlbum);
             CloseSelectedAlbumCommand = new RelayCommand(CloseSelectedAlbum);
 
+            // Playback Precentage Update
+            StopPrecentageUpdateCommand = new RelayCommand(() => IsPrecentageUpdateActive = false);
+            StartPrecentageUpdateCommand = new RelayCommand(() => { SetPlayTime(); IsPrecentageUpdateActive = true; });
+
             // Music Folders Commands
             AddMusicFolderCommand = new RelayCommand(AddMusicFolder);
             RemoveMusicFolderCommand = new RelayCommand(RemoveMusicFolder, () => !string.IsNullOrEmpty(MusicSearchPath));
@@ -53,12 +57,151 @@ namespace FlacPlayer.ViewModel
             StartSongPositionListener();
 
             // Start Web Socket
+            LydRemoteInstructions = "Lyd Remote is Starting...";
             WebSocketService.Start();
+            LydRemoteInstructions = "Visit \"" + DataService.GetLocalIPAddress() + ":8080\" in a web browser to use Lyd Remote";
+
+            // Attach Event Handler For Web Service
+            HtmlData.PlaySong += (obj, x) =>
+            {
+                Song song = Songs.Where(s => s.ID == x).FirstOrDefault();
+                PlayOnDemand(song);
+            };
+
+            HtmlData.ShufflePlay += (obj, e) =>
+            {
+                Shuffle();
+            };
+
+            HtmlData.PlayPause += (obj, e) =>
+            {
+                TogglePlayPause();
+            };
         }
 
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// The <see cref="LydRemoteInstructions" /> property's name.
+        /// </summary>
+        public const string LydRemoteInstructionsPropertyName = "LydRemoteInstructions";
+
+        private string _lydRemoteInstructions = "Lyd Remote Is Not Available";
+
+        /// <summary>
+        /// Sets and gets the LydRemoteInstructions property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public string LydRemoteInstructions
+        {
+            get
+            {
+                return _lydRemoteInstructions;
+            }
+
+            set
+            {
+                if (_lydRemoteInstructions == value)
+                {
+                    return;
+                }
+
+                _lydRemoteInstructions = value;
+                RaisePropertyChanged(LydRemoteInstructionsPropertyName);
+            }
+        }
+
+        /// <summary>
+        /// The <see cref="IsPrecentageUpdateActive" /> property's name.
+        /// </summary>
+        public const string IsPrecentageUpdateActivePropertyName = "IsPrecentageUpdateActive";
+
+        private bool _IsPrecentageUpdateActive = true;
+
+        /// <summary>
+        /// Sets and gets the IsPrecentageUpdateActive property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public bool IsPrecentageUpdateActive
+        {
+            get
+            {
+                return _IsPrecentageUpdateActive;
+            }
+
+            set
+            {
+                if (_IsPrecentageUpdateActive == value)
+                {
+                    return;
+                }
+
+                _IsPrecentageUpdateActive = value;
+                RaisePropertyChanged(IsPrecentageUpdateActivePropertyName);
+            }
+        }
+
+        /// <summary>
+        /// The <see cref="StopPrecentageUpdateCommand" /> property's name.
+        /// </summary>
+        public const string StopPrecentageUpdateCommandPropertyName = "StopPrecentageUpdateCommand";
+
+        private ICommand _StopPrecentageUpdateCommand;
+
+        /// <summary>
+        /// Sets and gets the StopPrecentageUpdateCommand property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public ICommand StopPrecentageUpdateCommand
+        {
+            get
+            {
+                return _StopPrecentageUpdateCommand;
+            }
+
+            set
+            {
+                if (_StopPrecentageUpdateCommand == value)
+                {
+                    return;
+                }
+
+                _StopPrecentageUpdateCommand = value;
+                RaisePropertyChanged(StopPrecentageUpdateCommandPropertyName);
+            }
+        }
+
+        /// <summary>
+        /// The <see cref="StartPrecentageUpdateCommand" /> property's name.
+        /// </summary>
+        public const string StartPrecentageUpdateCommandPropertyName = "StartPrecentageUpdateCommand";
+
+        private ICommand _StartPrecentageUpdateCommand;
+
+        /// <summary>
+        /// Sets and gets the StartPrecentageUpdateCommand property.
+        /// Changes to that property's value raise the PropertyChanged event. 
+        /// </summary>
+        public ICommand StartPrecentageUpdateCommand
+        {
+            get
+            {
+                return _StartPrecentageUpdateCommand;
+            }
+
+            set
+            {
+                if (_StartPrecentageUpdateCommand == value)
+                {
+                    return;
+                }
+
+                _StartPrecentageUpdateCommand = value;
+                RaisePropertyChanged(StartPrecentageUpdateCommandPropertyName);
+            }
+        }
 
         /// <summary>
         /// The <see cref="IsErrorVisible" /> property's name.
@@ -967,6 +1110,7 @@ namespace FlacPlayer.ViewModel
                 RaisePropertyChanging(SongsPropertyName);
                 _Songs = value;
                 RaisePropertyChanged(SongsPropertyName);
+                HtmlData.Songs = Songs.ToList();
             }
         }
 
@@ -1122,6 +1266,12 @@ namespace FlacPlayer.ViewModel
                 RaisePropertyChanging(CurrentPlayingSongPropertyName);
                 _currentPlayingSong = value;
                 RaisePropertyChanged(CurrentPlayingSongPropertyName);
+
+                Songs.ToList().ForEach(song => { song.IsCurrentlyPlaying = false; });
+                _currentPlayingSong.IsCurrentlyPlaying = true;
+
+                // Update Html Data
+                HtmlData.CurrentSong = _currentPlayingSong;
             }
         }
 
@@ -1182,6 +1332,16 @@ namespace FlacPlayer.ViewModel
             RaisePropertyChanged(nameof(IsPlaying));
         }
 
+        private void PlayOnDemand(Song song)
+        {
+            Player.Play(song.Path);
+            CurrentSongIndex = 0;
+            GetSongDuration();
+            UpdateCurrentSong(song);
+            AddSongsToQueue();
+            RaisePropertyChanged(nameof(IsPlaying));
+        }
+
         private int PlayNextSong()
         {
             PercentageComplete = 0;
@@ -1199,6 +1359,7 @@ namespace FlacPlayer.ViewModel
                 CurrentTrackDuration = 0;
                 PercentageComplete = 0;
             }
+            RaisePropertyChanged(nameof(IsPlaying));
             return 0;
         }
 
@@ -1236,6 +1397,7 @@ namespace FlacPlayer.ViewModel
                 CurrentTrackDuration = Player.GetCurrentSongDuration() / 1000;
                 int currentSeconds = (int)CurrentTrackDuration;
                 Duration = currentSeconds / 60 + ":" + (currentSeconds % 60 < 10 ? "0" + currentSeconds % 60 : (currentSeconds % 60).ToString());
+                ErrorString = string.Empty;
             }
             catch
             {
@@ -1363,6 +1525,12 @@ namespace FlacPlayer.ViewModel
             SelectedMenuItem = "Songs";
         }
 
+        private void SetPlayTime()
+        {
+            int seconds = (int)(CurrentTrackDuration * PercentageComplete / 100);
+            Player.SetPlayPosition(seconds);
+        }
+
         private void StartSongPositionListener()
         {
             System.Timers.Timer timer = new System.Timers.Timer();
@@ -1373,21 +1541,30 @@ namespace FlacPlayer.ViewModel
 
         void timer_Elapsed(object sender, ElapsedEventArgs e)
         {
-            long time = Player.GetCurrentSongPlayTime();
-            int currentSeconds = (int)time / 1000;
-
-            if (time > 1000 && currentSeconds > CurrentTrackDuration)
+            if (IsPrecentageUpdateActive)
             {
-                PlayNextSong();
-            }
-            else {
-                CurrentPositionText = currentSeconds / 60 + ":" + (currentSeconds % 60 < 10 ? "0" + currentSeconds % 60 : (currentSeconds % 60).ToString());
+                long time = Player.GetCurrentSongPlayTime();
+                int currentSeconds = (int)time / 1000;
 
-                if (CurrentTrackDuration != 0)
+                if (Player.IsFinished())
                 {
-
-                    PercentageComplete = (((double)currentSeconds / CurrentTrackDuration) * 100);
+                    PlayNextSong();
                 }
+                else
+                {
+                    CurrentPositionText = currentSeconds / 60 + ":" + (currentSeconds % 60 < 10 ? "0" + currentSeconds % 60 : (currentSeconds % 60).ToString());
+
+                    if (CurrentTrackDuration != 0)
+                    {
+
+                        PercentageComplete = (((double)currentSeconds / CurrentTrackDuration) * 100);
+                    }
+                }
+            }
+            else
+            {
+                int currentSeconds = (int)(CurrentTrackDuration * PercentageComplete / 100);
+                CurrentPositionText = currentSeconds / 60 + ":" + (currentSeconds % 60 < 10 ? "0" + currentSeconds % 60 : (currentSeconds % 60).ToString());
             }
         }
 
@@ -1397,10 +1574,16 @@ namespace FlacPlayer.ViewModel
             AddSongsToQueue();
         }
 
+        private void Shuffle()
+        {
+            IsShuffleMode = true;
+            AddSongsToQueue();
+            PlayNextSong();
+        }
+
         public override void Cleanup()
         {
             WebSocketService.Stop();
-            Application.Current.Shutdown();
             base.Cleanup();
         }
 

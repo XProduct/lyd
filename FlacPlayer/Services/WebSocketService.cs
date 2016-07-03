@@ -10,7 +10,7 @@ namespace FlacPlayer
 
         public void Start()
         {
-            httpServer = new MyHttpServer(8080);
+            httpServer = new LydHttpServer(8080);
             httpThread = new Thread(new ThreadStart(httpServer.Listen));
             httpThread.Start();
         }
@@ -18,6 +18,7 @@ namespace FlacPlayer
         public void Stop()
         {
             httpServer.Stop();
+            httpThread.Abort();
         }
     }
 }
