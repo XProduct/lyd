@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using FlacPlayer.Remote;
 
 namespace FlacPlayer
 {
@@ -10,5 +6,10 @@ namespace FlacPlayer
     {
         void Start();
         void Stop();
+        void SetControl(IRemoteControl control);
+        void ApplyPort(int port);
+        int Port { get; }
+        string DiscoverabilityHint { get; }
+        bool IsRunning { get; }
     }
 }

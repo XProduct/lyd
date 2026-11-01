@@ -1,48 +1,17 @@
-﻿using FlacPlayer.Model;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Timers;
+using FlacPlayer.Model;
 
 namespace FlacPlayer.Design
 {
     public class DesignPlayer : IPlayer
     {
-        public long GetCurrentSongDuration()
-        {
-            throw new NotImplementedException();
-        }
-
-        public long GetCurrentSongPlayTime()
-        {
-            throw new NotImplementedException();
-        }
-
-        public bool IsFinished()
-        {
-            return false;
-        }
-
-        public bool IsPlaying()
-        {
-            return true;
-        }
-
-        public void Pause()
-        {
-            throw new NotImplementedException();
-        }
-
-        public void Play(string filepath = null)
-        {
-            throw new NotImplementedException();
-        }
-
-        public void SetPlayPosition(int seconds)
-        {
-            throw new NotImplementedException();
-        }
+        public long GetCurrentSongDuration() { return 0; }
+        public long GetCurrentSongPlayTime() { return 0; }
+        public bool IsFinished() { return false; }
+        public bool IsPlaying() { return true; }
+        public void Pause() { }
+        public void Play(string filepath = null) { }
+        public void SetPlayPosition(int seconds) { }
+        public double GetVolume() { return 1.0; }
+        public void SetVolume(double level) { }
     }
 }
