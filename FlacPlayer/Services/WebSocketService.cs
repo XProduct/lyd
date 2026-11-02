@@ -97,7 +97,8 @@ namespace FlacPlayer
             }
             catch (Exception ex)
             {
-                DiscoverabilityHint = "API: " + baseUrl + " (mDNS failed: " + ex.Message + ")";
+                MdnsAdvertiser.WriteErrorLog(ex);
+                DiscoverabilityHint = "API: " + baseUrl + " (mDNS failed: " + MdnsAdvertiser.FlattenException(ex) + ")";
             }
         }
 

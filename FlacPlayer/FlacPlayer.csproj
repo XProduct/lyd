@@ -260,7 +260,8 @@
   <Target Name="AfterBuild">
     <ItemGroup>
       <MoveToLibFolder Include="$(OutputPath)*.dll ; $(OutputPath)*.pdb ; $(OutputPath)*.xml" />
-      <UnMovableLibs Include="$(OutputPath)lib\ikpFlac.dll ; $(OutputPath)lib\ikpMP3.dll" />
+      <!-- Keep native plugins + mDNS stack next to lyd.exe (PrettyBin lib\ probing breaks some Makaretu static init paths). -->
+      <UnMovableLibs Include="$(OutputPath)lib\ikpFlac.dll;$(OutputPath)lib\ikpMP3.dll;$(OutputPath)lib\Makaretu.Dns.dll;$(OutputPath)lib\Makaretu.Dns.Multicast.dll;$(OutputPath)lib\SimpleBase.dll;$(OutputPath)lib\Common.Logging.dll;$(OutputPath)lib\Common.Logging.Core.dll;$(OutputPath)lib\System.Net.IPNetwork.dll" />
     </ItemGroup>
     <Move SourceFiles="@(MoveToLibFolder)" DestinationFolder="$(OutputPath)lib" OverwriteReadOnlyFiles="true" />
     <Move SourceFiles="@(UnMovableLibs)" DestinationFolder="$(OutputPath)" OverwriteReadOnlyFiles="true" />
