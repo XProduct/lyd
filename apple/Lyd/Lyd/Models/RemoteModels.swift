@@ -80,12 +80,28 @@ struct PlaybackStateDto: Codable, Hashable {
     /// Phase E: "host" | "remote" (optional on older hosts).
     var outputTarget: String?
     var outputDeviceId: String?
+    /// Bumped on host seek / track start so the Apple renderer re-seeks.
+    var seekGeneration: Int64?
 }
 
 struct PlaybackOutputRequest: Encodable {
     var target: String
     var deviceId: String?
     var deviceName: String?
+}
+
+struct PlaybackHeartbeatRequest: Encodable {
+    var deviceId: String
+    var positionMs: Int64
+    var durationMs: Int64?
+    var songId: String?
+}
+
+struct PlayerRegisterRequest: Encodable {
+    var deviceId: String
+    var name: String
+    var platform: String
+    var capabilities: [String]
 }
 
 enum PlaybackOutputMode: String, CaseIterable, Identifiable, Hashable {

@@ -25,4 +25,14 @@ enum DeviceIdentity {
         return "This device"
         #endif
     }
+
+    static var platform: String {
+        #if os(tvOS)
+        return "tvos"
+        #elseif os(iOS)
+        return "ios"
+        #else
+        return "apple"
+        #endif
+    }
 }

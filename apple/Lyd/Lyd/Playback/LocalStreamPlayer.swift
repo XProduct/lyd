@@ -28,7 +28,7 @@ final class LocalStreamPlayer: ObservableObject {
         #endif
     }
 
-    func play(url: URL, songId: String, startAtMs: Int64) {
+    func play(url: URL, songId: String, startAtMs: Int64, autoplay: Bool = true) {
         configureAudioSession()
         tearDownPlayer(keepCallbacks: true)
 
@@ -37,6 +37,7 @@ final class LocalStreamPlayer: ObservableObject {
         av.volume = volume
         player = av
         currentSongId = songId
+        isPlaying = false
 
         statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             Task { @MainActor in
@@ -49,9 +50,15 @@ final class LocalStreamPlayer: ObservableObject {
                     if startAtMs > 0 {
                         let t = CMTime(value: startAtMs, timescale: 1000)
                         await av.seek(to: t)
+                        self.positionMs = max(0, startAtMs)
                     }
-                    av.play()
-                    self.isPlaying = true
+                    if autoplay {
+                        av.play()
+                        self.isPlaying = true
+                    } else {
+                        av.pause()
+                        self.isPlaying = false
+                    }
                 }
             }
         }
@@ -88,6 +95,12 @@ final class LocalStreamPlayer: ObservableObject {
             player.play()
             isPlaying = true
         }
+    }
+
+    func resume() {
+        guard let player else { return }
+        player.play()
+        isPlaying = true
     }
 
     func pause() {

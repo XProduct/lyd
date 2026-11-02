@@ -56,6 +56,8 @@ namespace FlacPlayer.Remote
         /// <summary>Phase E: "host" (irrKlang) or "remote" (Apple AVPlayer pulls /stream).</summary>
         public string OutputTarget { get; set; }
         public string OutputDeviceId { get; set; }
+        /// <summary>Bumped on every authoritative seek / track start so Apple clients re-seek.</summary>
+        public long SeekGeneration { get; set; }
     }
 
     public sealed class PlaybackOutputRequest
@@ -64,6 +66,32 @@ namespace FlacPlayer.Remote
         public string Target { get; set; }
         public string DeviceId { get; set; }
         public string DeviceName { get; set; }
+    }
+
+    /// <summary>Phase E: Apple player reports playhead while it is the audio renderer.</summary>
+    public sealed class PlaybackHeartbeatRequest
+    {
+        public string DeviceId { get; set; }
+        public long PositionMs { get; set; }
+        public long? DurationMs { get; set; }
+        public string SongId { get; set; }
+    }
+
+    public sealed class PlayerRegisterRequest
+    {
+        public string DeviceId { get; set; }
+        public string Name { get; set; }
+        public string Platform { get; set; }
+        public string[] Capabilities { get; set; }
+    }
+
+    public sealed class PlayerDto
+    {
+        public string DeviceId { get; set; }
+        public string Name { get; set; }
+        public string Platform { get; set; }
+        public string[] Capabilities { get; set; }
+        public long LastSeenUnixMs { get; set; }
     }
 
     public sealed class PlayRequest

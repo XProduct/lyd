@@ -249,6 +249,52 @@ namespace FlacPlayer.Remote
                     return;
                 }
 
+                if (method == "POST" && path == "/api/v1/playback/heartbeat")
+                {
+                    var body = ReadJson<PlaybackHeartbeatRequest>(context);
+                    if (body == null || string.IsNullOrEmpty(body.DeviceId))
+                    {
+                        WriteJson(context, 400, new { error = "deviceId_required" });
+                        return;
+                    }
+                    InvokeOnUi(() => _control.ApplyPlaybackHeartbeat(body.DeviceId, body.PositionMs, body.DurationMs, body.SongId));
+                    WriteJson(context, 200, new { ok = true });
+                    return;
+                }
+
+                if (method == "GET" && path == "/api/v1/players")
+                {
+                    WriteJson(context, 200, new { players = _control.GetPlayers() });
+                    return;
+                }
+
+                if (method == "POST" && path == "/api/v1/players/register")
+                {
+                    var body = ReadJson<PlayerRegisterRequest>(context);
+                    if (body == null || string.IsNullOrEmpty(body.DeviceId))
+                    {
+                        WriteJson(context, 400, new { error = "deviceId_required" });
+                        return;
+                    }
+                    InvokeOnUi(() => _control.RegisterPlayer(body.DeviceId, body.Name, body.Platform, body.Capabilities));
+                    WriteJson(context, 200, new { ok = true, deviceId = body.DeviceId });
+                    return;
+                }
+
+                if (method == "DELETE" && path.StartsWith("/api/v1/players/", StringComparison.OrdinalIgnoreCase))
+                {
+                    string deviceId = path.Substring("/api/v1/players/".Length);
+                    if (deviceId.EndsWith("/")) deviceId = deviceId.TrimEnd('/');
+                    if (string.IsNullOrEmpty(deviceId))
+                    {
+                        WriteJson(context, 400, new { error = "deviceId_required" });
+                        return;
+                    }
+                    InvokeOnUi(() => _control.UnregisterPlayer(deviceId));
+                    WriteJson(context, 200, new { ok = true });
+                    return;
+                }
+
                 if (method == "POST" && path == "/api/v1/playback/play")
                 {
                     var body = ReadJson<PlayRequest>(context);

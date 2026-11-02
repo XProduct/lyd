@@ -155,6 +155,36 @@ final class LydAPIClient: @unchecked Sendable {
         )
     }
 
+    /// Phase E: report playhead while this device is the audio renderer.
+    func playbackHeartbeat(deviceId: String, positionMs: Int64, durationMs: Int64?, songId: String?) async throws {
+        try await post(
+            "api/v1/playback/heartbeat",
+            body: PlaybackHeartbeatRequest(
+                deviceId: deviceId,
+                positionMs: positionMs,
+                durationMs: durationMs,
+                songId: songId
+            )
+        )
+    }
+
+    func registerPlayer(deviceId: String, name: String, platform: String) async throws {
+        try await post(
+            "api/v1/players/register",
+            body: PlayerRegisterRequest(
+                deviceId: deviceId,
+                name: name,
+                platform: platform,
+                capabilities: ["play"]
+            )
+        )
+    }
+
+    func unregisterPlayer(deviceId: String) async throws {
+        let encoded = deviceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? deviceId
+        try await delete("api/v1/players/\(encoded)")
+    }
+
     func coverURL(for relativeOrAbsolute: String?) -> URL? {
         guard let value = relativeOrAbsolute, !value.isEmpty else { return nil }
         if let absolute = URL(string: value), absolute.scheme != nil {
@@ -223,6 +253,12 @@ final class LydAPIClient: @unchecked Sendable {
 
     private func postEmpty(_ path: String) async throws {
         let request = try makeRequest(path: path, method: "POST")
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+    }
+
+    private func delete(_ path: String) async throws {
+        let request = try makeRequest(path: path, method: "DELETE")
         let (data, response) = try await perform(request)
         try validate(response, data: data)
     }

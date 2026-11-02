@@ -94,5 +94,25 @@ namespace FlacPlayer.Remote
         {
             _vm.RemoteSetAudioOutput(target, deviceId, deviceName);
         }
+
+        public void ApplyPlaybackHeartbeat(string deviceId, long positionMs, long? durationMs, string songId)
+        {
+            _vm.RemoteApplyPlaybackHeartbeat(deviceId, positionMs, durationMs, songId);
+        }
+
+        public void RegisterPlayer(string deviceId, string name, string platform, string[] capabilities)
+        {
+            _vm.RemoteRegisterPlayer(deviceId, name, platform, capabilities);
+        }
+
+        public void UnregisterPlayer(string deviceId)
+        {
+            _vm.RemoteUnregisterPlayer(deviceId);
+        }
+
+        public System.Collections.Generic.IList<PlayerDto> GetPlayers()
+        {
+            return _vm.RemoteGetPlayers();
+        }
     }
 }

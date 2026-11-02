@@ -21,5 +21,10 @@ namespace FlacPlayer.Remote
         bool TryGetSongFilePath(string songId, out string path, out string contentType);
         /// <summary>Phase E: "host" keeps irrKlang; "remote" silences host while session continues.</summary>
         void SetAudioOutput(string target, string deviceId, string deviceName);
+        /// <summary>Phase E: output device reports playhead for host UI / other remotes.</summary>
+        void ApplyPlaybackHeartbeat(string deviceId, long positionMs, long? durationMs, string songId);
+        void RegisterPlayer(string deviceId, string name, string platform, string[] capabilities);
+        void UnregisterPlayer(string deviceId);
+        System.Collections.Generic.IList<PlayerDto> GetPlayers();
     }
 }
