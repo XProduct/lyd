@@ -26,11 +26,13 @@ struct NowPlayingView: View {
     private var iOSBody: some View {
         ScrollView {
             VStack(spacing: 24) {
+                ScrollablePageTitle(title: "Now Playing")
+                    .padding(.top, 4)
+
                 CoverImage(url: coverURL)
                     .frame(maxWidth: 360)
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .padding(.top, 4)
 
                 metadataBlock(centered: true)
 
@@ -110,8 +112,7 @@ struct NowPlayingView: View {
             .padding(.bottom, 48)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .navigationTitle("Now Playing")
-        .navigationBarTitleDisplayMode(.inline)
+        .scrollableNavigationTitle()
         .toolbarBackground(.visible, for: .navigationBar)
         .onAppear { volumeDraft = session.playback.volume }
     }
@@ -130,6 +131,8 @@ struct NowPlayingView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 22) {
+                ScrollablePageTitle(title: "Now Playing")
+
                 metadataBlock(centered: false)
 
                 progressBlock
@@ -180,7 +183,7 @@ struct NowPlayingView: View {
         }
         .padding(48)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("Now Playing")
+        .scrollableNavigationTitle()
         .onAppear { volumeDraft = session.playback.volume }
     }
 

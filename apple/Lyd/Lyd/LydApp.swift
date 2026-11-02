@@ -8,8 +8,10 @@ struct LydApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(session)
+                #if os(iOS)
                 .tint(LydTheme.primary)
                 .accentColor(LydTheme.primary)
+                #endif
         }
     }
 }

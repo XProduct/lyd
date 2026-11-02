@@ -29,6 +29,8 @@ struct LibraryShellView: View {
             .tabItem { Label("Settings", systemImage: "gearshape") }
             .tag(AppTab.settings)
         }
+        #if os(iOS)
         .tint(LydTheme.primary)
+        #endif
     }
 }

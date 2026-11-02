@@ -22,23 +22,29 @@ struct AlbumsView: View {
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: columns, alignment: .leading, spacing: gridSpacing) {
-                ForEach(session.library.albums) { album in
-                    #if os(tvOS)
-                    TVAlbumPosterCell(album: album, coverURL: session.coverURL(for: album))
-                    #else
-                    NavigationLink(value: album) {
-                        AlbumCell(album: album, coverURL: session.coverURL(for: album))
+            VStack(alignment: .leading, spacing: gridSpacing) {
+                ScrollablePageTitle(title: "Albums")
+                    .padding(.horizontal, gridPadding)
+                    .padding(.top, titleTopPadding)
+
+                LazyVGrid(columns: columns, alignment: .leading, spacing: gridSpacing) {
+                    ForEach(session.library.albums) { album in
+                        #if os(tvOS)
+                        TVAlbumPosterCell(album: album, coverURL: session.coverURL(for: album))
+                        #else
+                        NavigationLink(value: album) {
+                            AlbumCell(album: album, coverURL: session.coverURL(for: album))
+                        }
+                        .buttonStyle(.plain)
+                        #endif
                     }
-                    .buttonStyle(.plain)
-                    #endif
                 }
+                .padding(.horizontal, gridPadding)
+                .padding(.bottom, gridPadding)
             }
-            .padding(gridPadding)
         }
-        .navigationTitle("Albums")
+        .scrollableNavigationTitle()
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
         .refreshable {
             await session.refreshLibrary(force: true)
@@ -67,6 +73,14 @@ struct AlbumsView: View {
         48
         #else
         16
+        #endif
+    }
+
+    private var titleTopPadding: CGFloat {
+        #if os(tvOS)
+        24
+        #else
+        8
         #endif
     }
 }

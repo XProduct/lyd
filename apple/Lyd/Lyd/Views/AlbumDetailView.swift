@@ -40,9 +40,7 @@ struct AlbumDetailView: View {
                     .frame(maxWidth: .infinity)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(album.displayTitle)
-                            .font(.title2.bold())
-                            .foregroundStyle(Color.primary)
+                        ScrollablePageTitle(title: album.displayTitle)
                         Text(album.displayArtist)
                             .foregroundStyle(Color.secondary)
                         Text("\(tracks.count) tracks")
@@ -62,9 +60,6 @@ struct AlbumDetailView: View {
                 }
             }
         }
-        .navigationTitle(album.displayTitle)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+        .scrollableNavigationTitle()
     }
 }

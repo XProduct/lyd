@@ -9,6 +9,9 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            ScrollablePageTitle(title: "Settings")
+                .scrollableListTitleRow()
+
             Section {
                 switch session.phase {
                 case .connected:
@@ -91,9 +94,8 @@ struct SettingsView: View {
                 Text("IPv4 or IPv6 (brackets optional), e.g. 192.168.44.154 or fe80::1 — port 8080. Last successful host is remembered.")
             }
         }
-        .navigationTitle("Settings")
+        .scrollableNavigationTitle()
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

@@ -16,14 +16,18 @@ struct SongsView: View {
     }
 
     var body: some View {
-        List(filtered) { song in
-            SongRow(song: song) {
-                Task { await session.play(songId: song.id) }
+        List {
+            ScrollablePageTitle(title: "Songs")
+                .scrollableListTitleRow()
+
+            ForEach(filtered) { song in
+                SongRow(song: song) {
+                    Task { await session.play(songId: song.id) }
+                }
             }
         }
-        .navigationTitle("Songs")
+        .scrollableNavigationTitle()
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
         .searchable(text: $query, prompt: "Title, artist, album")
         .refreshable {
