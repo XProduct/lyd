@@ -2279,17 +2279,26 @@ namespace FlacPlayer.ViewModel
         }
 
         /// <summary>
-        /// Soft-follow an Apple renderer's heartbeat. Never let a pre-seek AVPlayer sample
-        /// (often ~0 right after join) rewind the shared session clock.
+        /// Soft-follow an Apple renderer's heartbeat. Position must advance monotonically:
+        /// pre-seek ~0 samples and lagging heartbeats must not rewind or sawtooth the
+        /// desktop progress bar (classic symptom: toggling between two seconds).
         /// </summary>
         private void ApplyRemoteHeartbeatPosition(long positionMs)
         {
             if (positionMs < 0) positionMs = 0;
 
             long current = GetSessionPositionMs();
-            // Large backward jumps are almost always "item just loaded at 0" before the
-            // join seek lands — keep the session clock running from the handoff position.
-            if (current > 1500 && positionMs + 1500 < current)
+            // Behind the live session clock — ignore (join ~0, stalled reporter, RTT lag).
+            if (positionMs + 250 < current)
+            {
+                return;
+            }
+
+            // Roughly in sync: leave the running Stopwatch alone so the UI does not
+            // reset every heartbeat and flicker between adjacent seconds.
+            if (positionMs <= current + 250
+                && _remoteSessionPlaying
+                && _remotePositionWatch.IsRunning)
             {
                 return;
             }

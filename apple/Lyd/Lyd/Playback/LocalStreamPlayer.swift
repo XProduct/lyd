@@ -148,6 +148,7 @@ final class LocalStreamPlayer: ObservableObject {
         currentSongId = nil
         pendingStartMs = 0
         pendingAutoplay = true
+        didApplyInitialStart = false
         armAudioSession(active: false)
     }
 
@@ -184,9 +185,21 @@ final class LocalStreamPlayer: ObservableObject {
     // MARK: - Player plumbing
 
     private func ensurePlayer() -> AVPlayer {
-        if let player { return player }
+        if let player {
+            // stop() removes the observer but keeps the AVPlayer — reattach on reuse or
+            // the UI/heartbeats freeze on the join second while audio still plays.
+            ensureTimeObserver(on: player)
+            return player
+        }
         let av = AVPlayer()
         av.automaticallyWaitsToMinimizeStalling = true
+        ensureTimeObserver(on: av)
+        player = av
+        return av
+    }
+
+    private func ensureTimeObserver(on av: AVPlayer) {
+        guard timeObserver == nil else { return }
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = av.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
@@ -198,8 +211,6 @@ final class LocalStreamPlayer: ObservableObject {
                 self.isPlaying = (self.player?.rate ?? 0) > 0.01
             }
         }
-        player = av
-        return av
     }
 
     private func attachItemObservers(item: AVPlayerItem, player av: AVPlayer) {

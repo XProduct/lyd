@@ -984,15 +984,16 @@ final class LydSession: ObservableObject {
 
     private func reportPlaybackHeartbeat() async {
         guard isLocalAudioOutput, let client else { return }
-        // Always send the join-safe playhead; only claim isPlaying after initial start
-        // so a buffering device cannot freeze/rewind the host remote clock.
-        let ready = localPlayer.isReadyForHeartbeat
+        // Wait until the join seek has landed. Pre-ready heartbeats repeated the same
+        // pendingStart and restarted the host Stopwatch every second (bar flicker).
+        // Host keeps time from the handoff Stopwatch until we are ready.
+        guard localPlayer.isReadyForHeartbeat else { return }
         try? await client.playbackHeartbeat(
             deviceId: DeviceIdentity.deviceId,
             positionMs: localPlayer.heartbeatPositionMs,
             durationMs: localPlayer.durationMs > 0 ? localPlayer.durationMs : nil,
             songId: localPlayer.currentSongId ?? playback.currentSongId,
-            isPlaying: ready ? localPlayer.isPlaying : nil
+            isPlaying: localPlayer.isPlaying
         )
     }
 
