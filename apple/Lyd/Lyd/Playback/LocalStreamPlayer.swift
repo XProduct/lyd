@@ -20,8 +20,13 @@ final class LocalStreamPlayer: ObservableObject {
     private var pendingStartMs: Int64 = 0
     private var pendingAutoplay = true
     private var sessionArmed = false
+    /// Once true for the current item, ready-to-play must not re-seek to a stale start
+    /// (that was clobbering Phase F catch-up seeks and leaving iOS seconds behind).
+    private var didApplyInitialStart = false
 
     var onFinished: (() -> Void)?
+    /// Fired once when the current item is ready and initial start/play has been applied.
+    var onBecameReady: (() -> Void)?
 
     /// Non-blocking: category + activate run off the main thread (avoids UI hitch).
     func configureAudioSession() {
@@ -33,6 +38,7 @@ final class LocalStreamPlayer: ObservableObject {
 
         pendingStartMs = max(0, startAtMs)
         pendingAutoplay = autoplay
+        didApplyInitialStart = false
         currentSongId = songId
         positionMs = pendingStartMs
         durationMs = 0
@@ -82,6 +88,9 @@ final class LocalStreamPlayer: ObservableObject {
 
     func seek(positionMs: Int64, precise: Bool = false) async {
         guard let player else { return }
+        // Mark initial start consumed so a late ready-to-play cannot rewind to pendingStartMs.
+        didApplyInitialStart = true
+        pendingStartMs = max(0, positionMs)
         let t = CMTime(value: max(0, positionMs), timescale: 1000)
         if precise {
             // Phase F sync correction — tighter than transport scrub seeks.
@@ -94,7 +103,7 @@ final class LocalStreamPlayer: ObservableObject {
         self.positionMs = max(0, positionMs)
     }
 
-    /// Phase F soft drift correction (typically 0.95…1.05). 1.0 = normal.
+    /// Phase F soft drift correction. Allows catch-up rates above 1.05 when far behind.
     /// No-ops while paused so a rate reset cannot accidentally resume.
     func setPlaybackRate(_ rate: Float) {
         guard let player else { return }
@@ -194,22 +203,31 @@ final class LocalStreamPlayer: ObservableObject {
                     self.durationMs = Int64(duration.seconds * 1000)
                 }
 
-                if startMs > 0 {
-                    let t = CMTime(value: startMs, timescale: 1000)
-                    await av.seek(
-                        to: t,
-                        toleranceBefore: .positiveInfinity,
-                        toleranceAfter: .positiveInfinity
-                    )
-                    self.positionMs = startMs
-                }
-
-                if shouldPlay {
+                // Only the first ready pass applies the join start — a Phase F catch-up
+                // seek sets didApplyInitialStart so we must not rewind to stale startMs.
+                if !self.didApplyInitialStart {
+                    self.didApplyInitialStart = true
+                    let applyStartMs = self.pendingStartMs > 0 ? self.pendingStartMs : startMs
+                    if applyStartMs > 0 {
+                        let t = CMTime(value: applyStartMs, timescale: 1000)
+                        await av.seek(
+                            to: t,
+                            toleranceBefore: .positiveInfinity,
+                            toleranceAfter: .positiveInfinity
+                        )
+                        self.positionMs = applyStartMs
+                    }
+                    if shouldPlay {
+                        av.play()
+                        self.isPlaying = true
+                    } else {
+                        av.pause()
+                        self.isPlaying = false
+                    }
+                    self.onBecameReady?()
+                } else if shouldPlay, !self.isPlaying {
                     av.play()
                     self.isPlaying = true
-                } else {
-                    av.pause()
-                    self.isPlaying = false
                 }
             }
         }

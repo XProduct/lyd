@@ -84,12 +84,17 @@ final class LydSession: ObservableObject {
 
     /// Phase F: prefer rate-adjust for drift; hard seek only for huge skew (and once per track).
     private enum TimelineSync {
-        /// Hard seek only when |skew| is huge — avoids audible seek chatter.
+        /// Hard seek when |skew| is huge — avoids audible seek chatter.
         static let hardSeekSkewMs: Int64 = 2000
         /// Soft rate adjust when |skew| exceeds this.
         static let rateSkewMs: Int64 = 80
+        /// Mild catch-up / slow-down for small drift.
         static let rateFast: Float = 1.05
         static let rateSlow: Float = 0.95
+        /// Stronger rate-up when still lagging after the one catch-up seek (never stay stuck slow).
+        static let rateFastCatchUp: Float = 1.12
+        /// Use stronger rate-up when behind by at least this much.
+        static let strongBehindMs: Int64 = 400
     }
 
     /// This device is checked in Playing on → AVPlayer renders; unchecked = remote-only UI.
@@ -711,6 +716,13 @@ final class LydSession: ObservableObject {
                 await self.next()
             }
         }
+        // After buffer/start, host may have advanced — catch up once without waiting for next poll.
+        localPlayer.onBecameReady = { [weak self] in
+            Task { @MainActor in
+                guard let self, self.isLocalAudioOutput, self.playback.isPlaying else { return }
+                await self.followHostTimeline(self.playback)
+            }
+        }
     }
 
     /// Guarantees at least one renderer before play/seek transport hits the host.
@@ -1018,25 +1030,58 @@ final class LydSession: ObservableObject {
 
     /// Align AVPlayer to host timeline. Corrections apply to **this device only**.
     private func followHostTimeline(_ remote: PlaybackStateDto) async {
+        guard remote.isPlaying || timelineSamplePlaying else {
+            if abs(localPlayer.playbackRate - 1.0) > 0.001 {
+                localPlayer.setPlaybackRate(1.0)
+            }
+            return
+        }
+
         let desired = hostTimelineDesiredMs()
         // Positive ⇒ local behind host; negative ⇒ local ahead of host.
         let skew = desired - localPlayer.positionMs
         let absSkew = abs(skew)
 
-        // Hard seek only for huge skew, and at most once per track after join/start.
-        if absSkew >= TimelineSync.hardSeekSkewMs, !didCorrectiveTimelineSeekThisItem {
+        // Far BEHIND: one catch-up seek/track; if still lagging afterward, keep rate up
+        // (never leave the client stuck at 0.95 / 1.0 while seconds late).
+        if skew >= TimelineSync.hardSeekSkewMs {
+            if !didCorrectiveTimelineSeekThisItem {
+                didCorrectiveTimelineSeekThisItem = true
+                await localPlayer.seek(positionMs: desired, precise: true)
+                if remote.isPlaying || timelineSamplePlaying {
+                    localPlayer.resume()
+                    localPlayer.setPlaybackRate(TimelineSync.rateFastCatchUp)
+                }
+            } else {
+                if remote.isPlaying || timelineSamplePlaying, !localPlayer.isPlaying {
+                    localPlayer.resume()
+                }
+                localPlayer.setPlaybackRate(TimelineSync.rateFastCatchUp)
+            }
+            return
+        }
+
+        // Far AHEAD: one seek back (same once-per-track budget).
+        if skew <= -TimelineSync.hardSeekSkewMs, !didCorrectiveTimelineSeekThisItem {
             didCorrectiveTimelineSeekThisItem = true
             await localPlayer.seek(positionMs: desired, precise: true)
             localPlayer.setPlaybackRate(1.0)
-            if remote.isPlaying, !localPlayer.isPlaying {
+            if remote.isPlaying || timelineSamplePlaying, !localPlayer.isPlaying {
                 localPlayer.resume()
             }
             return
         }
 
-        // Rate-adjust for ordinary drift: behind → speed up; ahead → slow down.
+        // Ordinary drift: behind → rate up (stronger when clearly late); ahead → rate down.
         if absSkew >= TimelineSync.rateSkewMs {
-            localPlayer.setPlaybackRate(skew > 0 ? TimelineSync.rateFast : TimelineSync.rateSlow)
+            if skew > 0 {
+                let rate = skew >= TimelineSync.strongBehindMs
+                    ? TimelineSync.rateFastCatchUp
+                    : TimelineSync.rateFast
+                localPlayer.setPlaybackRate(rate)
+            } else {
+                localPlayer.setPlaybackRate(TimelineSync.rateSlow)
+            }
         } else if abs(localPlayer.playbackRate - 1.0) > 0.001 {
             localPlayer.setPlaybackRate(1.0)
         }
