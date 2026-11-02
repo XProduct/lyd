@@ -24,6 +24,9 @@ struct SongsView: View {
         .navigationTitle("Songs")
         #if os(iOS)
         .searchable(text: $query, prompt: "Title, artist, album")
+        .refreshable {
+            await session.refreshLibrary(force: true)
+        }
         #endif
         .toolbar { HostToolbar() }
         .overlay {

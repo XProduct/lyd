@@ -29,6 +29,19 @@ struct NowPlayingView: View {
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                    if let album = song?.album?.nilIfEmpty {
+                        Text(album)
+                            .font(.subheadline)
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
+                    }
+                    if let tech = song?.technicalSummary {
+                        Text(tech)
+                            .font(.footnote.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 2)
+                    }
                 }
 
                 VStack(spacing: 8) {
@@ -162,12 +175,14 @@ struct NowPlayingView: View {
                 Text("Controlling \(session.selectedDisplayName) · \(session.selectedEndpoint)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .padding(.bottom, 24)
             }
             .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
             .padding()
+            // Clear the tab bar so shuffle / volume stay reachable.
+            .padding(.bottom, 48)
         }
+        .scrollBounceBehavior(.basedOnSize)
         .navigationTitle("Now Playing")
         .toolbar { HostToolbar() }
         .onAppear { volumeDraft = session.playback.volume }
@@ -196,6 +211,13 @@ private extension LydSession {
     }
 }
 
+private extension String {
+    var nilIfEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 struct HostToolbar: ToolbarContent {
     @EnvironmentObject private var session: LydSession
 
@@ -203,13 +225,6 @@ struct HostToolbar: ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             Button("Hosts") {
                 session.disconnect(returnToPicker: true)
-            }
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                Task { await session.refreshLibrary(force: true) }
-            } label: {
-                Image(systemName: "arrow.clockwise")
             }
         }
     }

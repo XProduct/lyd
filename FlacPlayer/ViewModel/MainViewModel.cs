@@ -1772,7 +1772,10 @@ namespace FlacPlayer.ViewModel
                 AlbumId = song.AlbumId ?? AlbumIdHelper.From(song.Artist, song.Album),
                 Track = song.Track,
                 Disc = song.Disc,
-                DurationMs = null
+                DurationMs = null,
+                Bitrate = song.Bitrate > 0 ? song.Bitrate : (double?)null,
+                SampleRate = song.SampleRate > 0 ? song.SampleRate : (double?)null,
+                Depth = song.Depth > 0 ? song.Depth : (double?)null
             };
         }
 

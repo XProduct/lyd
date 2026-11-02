@@ -32,6 +32,11 @@ struct AlbumsView: View {
             AlbumDetailView(album: album)
         }
         .toolbar { HostToolbar() }
+        #if os(iOS)
+        .refreshable {
+            await session.refreshLibrary(force: true)
+        }
+        #endif
         .overlay {
             if session.library.albums.isEmpty {
                 ContentUnavailableView(
