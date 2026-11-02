@@ -84,5 +84,15 @@ namespace FlacPlayer.Remote
         {
             return _vm.TryGetRemoteAlbumCover(albumId, out bytes, out contentType);
         }
+
+        public bool TryGetSongFilePath(string songId, out string path, out string contentType)
+        {
+            return _vm.TryGetRemoteSongFilePath(songId, out path, out contentType);
+        }
+
+        public void SetAudioOutput(string target, string deviceId, string deviceName)
+        {
+            _vm.RemoteSetAudioOutput(target, deviceId, deviceName);
+        }
     }
 }

@@ -45,13 +45,36 @@ final class LydSession: ObservableObject {
     @Published private(set) var isHostReachable = false
     @Published private(set) var offlineMessage: String?
     @Published var manualValidateResult: ManualValidateResult = .idle
+    /// Phase E: where audio renders for the shared host session.
+    @Published var playingOn: PlaybackOutputMode = .host
 
     let browser = BonjourBrowser()
+    let localPlayer = LocalStreamPlayer()
 
     private var client: LydAPIClient?
     private var libraryPollTask: Task<Void, Never>?
     private var playbackPollTask: Task<Void, Never>?
     private var connectSource: ConnectSource = .unknown
+    private var localPlayerConfigured = false
+    private var localPlayerCancellables = Set<AnyCancellable>()
+
+    /// Volume UI should drive the device AVPlayer only when Playing on this device.
+    var usesDeviceVolume: Bool { playingOn == .thisDevice }
+
+    var effectiveIsPlaying: Bool {
+        playingOn == .thisDevice ? localPlayer.isPlaying : playback.isPlaying
+    }
+
+    var effectivePositionMs: Int64 {
+        playingOn == .thisDevice ? localPlayer.positionMs : playback.positionMs
+    }
+
+    var effectiveDurationMs: Int64 {
+        if playingOn == .thisDevice, localPlayer.durationMs > 0 {
+            return localPlayer.durationMs
+        }
+        return playback.durationMs
+    }
 
     private enum ConnectSource {
         case bonjour
@@ -130,6 +153,8 @@ final class LydSession: ObservableObject {
         playbackPollTask?.cancel()
         libraryPollTask = nil
         playbackPollTask = nil
+        localPlayer.stop()
+        playingOn = .host
         client = nil
         isHostReachable = false
         offlineMessage = nil
@@ -193,10 +218,46 @@ final class LydSession: ObservableObject {
     func refreshPlayback() async {
         guard let client else { return }
         do {
-            playback = try await client.playbackState()
+            let remote = try await client.playbackState()
             markReachable()
+            await applyHostPlaybackState(remote)
         } catch {
             markUnreachable(error)
+        }
+    }
+
+    /// Phase E: transfer audio renderer between host irrKlang and this device’s AVPlayer.
+    func setPlayingOn(_ mode: PlaybackOutputMode) async {
+        guard client != nil else { return }
+        let previous = playingOn
+        guard previous != mode else { return }
+
+        let wasPlaying = effectiveIsPlaying
+        let position = effectivePositionMs
+        let songId = playback.currentSongId
+
+        if mode == .thisDevice {
+            playingOn = .thisDevice
+            await notifyHostOutput(remote: true)
+            // Silence host if output API missing on older builds.
+            try? await client?.pause()
+            if let songId {
+                await startLocalStream(songId: songId, atMs: position, autoplay: wasPlaying)
+            }
+        } else {
+            let handoffMs = localPlayer.positionMs > 0 ? localPlayer.positionMs : position
+            localPlayer.stop()
+            playingOn = .host
+            await notifyHostOutput(remote: false)
+            if let songId {
+                try? await client?.seek(positionMs: handoffMs)
+                if wasPlaying {
+                    // Host was paused for remote output; nudge play.
+                    try? await client?.play(songId: songId)
+                    try? await client?.seek(positionMs: handoffMs)
+                }
+            }
+            await refreshPlayback()
         }
     }
 
@@ -235,6 +296,9 @@ final class LydSession: ObservableObject {
     func play(songId: String) async {
         selectedTab = .nowPlaying
         await mutate { try await $0.play(songId: songId) }
+        if playingOn == .thisDevice {
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+        }
     }
 
     /// Shuffle off + play album in disc/track order (Windows `play-album`).
@@ -244,22 +308,46 @@ final class LydSession: ObservableObject {
             try? await client.shuffle(enabled: false)
             try await client.playAlbum(albumId: albumId)
         }
+        if playingOn == .thisDevice, let songId = playback.currentSongId {
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+        }
     }
 
     func playPause() async {
+        if playingOn == .thisDevice {
+            localPlayer.playPause()
+            // Keep shared session roughly aligned without starting host audio.
+            if localPlayer.isPlaying {
+                try? await client?.seek(positionMs: localPlayer.positionMs)
+            } else {
+                try? await client?.pause()
+            }
+            return
+        }
         await mutate { try await $0.playPause() }
     }
 
     func pause() async {
+        if playingOn == .thisDevice {
+            localPlayer.pause()
+            try? await client?.pause()
+            return
+        }
         await mutate { try await $0.pause() }
     }
 
     func next() async {
         await mutate { try await $0.next() }
+        if playingOn == .thisDevice, let songId = playback.currentSongId {
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+        }
     }
 
     func previous() async {
         await mutate { try await $0.previous() }
+        if playingOn == .thisDevice, let songId = playback.currentSongId {
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+        }
     }
 
     func toggleShuffle() async {
@@ -267,12 +355,23 @@ final class LydSession: ObservableObject {
     }
 
     func seek(positionMs: Int64) async {
+        if playingOn == .thisDevice {
+            await localPlayer.seek(positionMs: positionMs)
+            try? await client?.seek(positionMs: positionMs)
+            return
+        }
         await mutate { try await $0.seek(positionMs: positionMs) }
     }
 
     func setVolume(_ level: Double) async {
-        playback.volume = level
-        await mutate { try await $0.setVolume(level: level) }
+        let clamped = min(max(level, 0), 1)
+        if playingOn == .thisDevice {
+            localPlayer.volume = Float(clamped)
+            playback.volume = clamped
+            return
+        }
+        playback.volume = clamped
+        await mutate { try await $0.setVolume(level: clamped) }
     }
 
     // MARK: - Private
@@ -313,6 +412,20 @@ final class LydSession: ObservableObject {
                 let lib = try await api.library()
                 library = lib
                 playback = try await api.playbackState()
+                configureLocalPlayerIfNeeded()
+                if playback.outputTarget == "remote",
+                   playback.outputDeviceId == DeviceIdentity.deviceId {
+                    playingOn = .thisDevice
+                    if let songId = playback.currentSongId {
+                        await startLocalStream(
+                            songId: songId,
+                            atMs: playback.positionMs,
+                            autoplay: true
+                        )
+                    }
+                } else {
+                    playingOn = .host
+                }
                 phase = .connected
                 markReachable()
                 startPolling()
@@ -354,12 +467,81 @@ final class LydSession: ObservableObject {
         defer { isBusy = false }
         do {
             try await work(client)
-            playback = try await client.playbackState()
+            let remote = try await client.playbackState()
+            await applyHostPlaybackState(remote)
             statusMessage = nil
             markReachable()
         } catch {
             statusMessage = error.localizedDescription
             markUnreachable(error)
+        }
+    }
+
+    private func configureLocalPlayerIfNeeded() {
+        guard !localPlayerConfigured else { return }
+        localPlayerConfigured = true
+        localPlayer.configureAudioSession()
+        localPlayer.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &localPlayerCancellables)
+        localPlayer.onFinished = { [weak self] in
+            Task { @MainActor in
+                guard let self, self.playingOn == .thisDevice else { return }
+                await self.next()
+            }
+        }
+    }
+
+    private func notifyHostOutput(remote: Bool) async {
+        guard let client else { return }
+        do {
+            try await client.setPlaybackOutput(
+                target: remote ? "remote" : "host",
+                deviceId: remote ? DeviceIdentity.deviceId : nil,
+                deviceName: remote ? DeviceIdentity.displayName : nil
+            )
+        } catch {
+            // Older hosts without /playback/output — Apple still pauses host explicitly.
+            statusMessage = nil
+        }
+    }
+
+    private func startLocalStream(songId: String, atMs: Int64, autoplay: Bool) async {
+        guard let client, let url = client.streamURL(songId: songId) else {
+            statusMessage = "Stream URL unavailable"
+            return
+        }
+        configureLocalPlayerIfNeeded()
+        localPlayer.play(url: url, songId: songId, startAtMs: max(0, atMs))
+        if !autoplay {
+            localPlayer.pause()
+        }
+        // Ensure host stays silent while we render.
+        try? await client.pause()
+    }
+
+    private func applyHostPlaybackState(_ remote: PlaybackStateDto) async {
+        if playingOn == .thisDevice {
+            // Shared session: take song/shuffle from host; position/playing from AVPlayer.
+            var merged = remote
+            merged.isPlaying = localPlayer.isPlaying
+            merged.positionMs = localPlayer.positionMs
+            if localPlayer.durationMs > 0 {
+                merged.durationMs = localPlayer.durationMs
+            }
+            merged.volume = Double(localPlayer.volume)
+            playback = merged
+
+            if let songId = remote.currentSongId, songId != localPlayer.currentSongId {
+                // Shared session song changed (another remote, or host). Keep local play/pause.
+                let shouldPlay = localPlayer.isPlaying
+                await startLocalStream(songId: songId, atMs: 0, autoplay: shouldPlay)
+            }
+        } else {
+            playback = remote
         }
     }
 

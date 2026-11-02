@@ -224,6 +224,31 @@ namespace FlacPlayer.Remote
                     return;
                 }
 
+                // Phase E: original-file stream with HTTP Range (Apple AVPlayer).
+                if (method == "GET" && path.StartsWith("/api/v1/stream/songs/", StringComparison.OrdinalIgnoreCase))
+                {
+                    string songId = path.Substring("/api/v1/stream/songs/".Length);
+                    if (songId.EndsWith("/")) songId = songId.TrimEnd('/');
+                    string filePath;
+                    string contentType;
+                    if (!_control.TryGetSongFilePath(songId, out filePath, out contentType) || string.IsNullOrEmpty(filePath))
+                    {
+                        WriteJson(context, 404, new { error = "song_not_found" });
+                        return;
+                    }
+                    WriteFileWithRange(context, filePath, contentType);
+                    return;
+                }
+
+                if (method == "POST" && path == "/api/v1/playback/output")
+                {
+                    var body = ReadJson<PlaybackOutputRequest>(context) ?? new PlaybackOutputRequest();
+                    string target = string.IsNullOrWhiteSpace(body.Target) ? "host" : body.Target.Trim();
+                    InvokeOnUi(() => _control.SetAudioOutput(target, body.DeviceId, body.DeviceName));
+                    WriteJson(context, 200, new { ok = true, target = target, deviceId = body.DeviceId });
+                    return;
+                }
+
                 if (method == "POST" && path == "/api/v1/playback/play")
                 {
                     var body = ReadJson<PlayRequest>(context);
@@ -430,6 +455,72 @@ namespace FlacPlayer.Remote
             context.Response.ContentType = contentType;
             context.Response.ContentLength64 = bytes.LongLength;
             context.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            context.Response.OutputStream.Close();
+        }
+
+        /// <summary>Serve a media file with Accept-Ranges / Range support for AVPlayer.</summary>
+        private static void WriteFileWithRange(HttpListenerContext context, string filePath, string contentType)
+        {
+            var info = new System.IO.FileInfo(filePath);
+            long length = info.Length;
+            context.Response.Headers["Accept-Ranges"] = "bytes";
+            context.Response.ContentType = contentType;
+            context.Response.Headers["Cache-Control"] = "no-cache";
+
+            string rangeHeader = context.Request.Headers["Range"];
+            long start = 0;
+            long end = length - 1;
+            if (!string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase))
+            {
+                string spec = rangeHeader.Substring("bytes=".Length).Trim();
+                int dash = spec.IndexOf('-');
+                if (dash >= 0)
+                {
+                    string startText = spec.Substring(0, dash);
+                    string endText = spec.Substring(dash + 1);
+                    long parsedStart;
+                    long parsedEnd;
+                    if (long.TryParse(startText, out parsedStart)) start = parsedStart;
+                    if (long.TryParse(endText, out parsedEnd)) end = parsedEnd;
+                    if (end >= length) end = length - 1;
+                    if (start < 0) start = 0;
+                    if (start > end || start >= length)
+                    {
+                        context.Response.StatusCode = 416;
+                        context.Response.Headers["Content-Range"] = "bytes */" + length;
+                        context.Response.ContentLength64 = 0;
+                        context.Response.OutputStream.Close();
+                        return;
+                    }
+                    context.Response.StatusCode = 206;
+                    context.Response.Headers["Content-Range"] = "bytes " + start + "-" + end + "/" + length;
+                }
+                else
+                {
+                    context.Response.StatusCode = 200;
+                }
+            }
+            else
+            {
+                context.Response.StatusCode = 200;
+            }
+
+            long count = end - start + 1;
+            context.Response.ContentLength64 = count;
+            using (var fs = new System.IO.FileStream(filePath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.Read))
+            {
+                fs.Seek(start, System.IO.SeekOrigin.Begin);
+                var buffer = new byte[81920];
+                long remaining = count;
+                while (remaining > 0)
+                {
+                    int toRead = remaining > buffer.Length ? buffer.Length : (int)remaining;
+                    int read = fs.Read(buffer, 0, toRead);
+                    if (read <= 0) break;
+                    context.Response.OutputStream.Write(buffer, 0, read);
+                    remaining -= read;
+                }
+            }
             context.Response.OutputStream.Close();
         }
 

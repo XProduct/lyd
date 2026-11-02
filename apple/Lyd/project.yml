@@ -30,6 +30,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Lyd
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Lyd discovers and controls your Lyd music player on the local network.
         INFOPLIST_KEY_NSBonjourServices: ["_lyd._tcp"]
+        INFOPLIST_KEY_UIBackgroundModes: [audio]
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"

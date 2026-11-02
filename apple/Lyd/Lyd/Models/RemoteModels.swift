@@ -77,6 +77,31 @@ struct PlaybackStateDto: Codable, Hashable {
     var currentSongId: String?
     var currentSong: SongDto?
     var volume: Double
+    /// Phase E: "host" | "remote" (optional on older hosts).
+    var outputTarget: String?
+    var outputDeviceId: String?
+}
+
+struct PlaybackOutputRequest: Encodable {
+    var target: String
+    var deviceId: String?
+    var deviceName: String?
+}
+
+enum PlaybackOutputMode: String, CaseIterable, Identifiable, Hashable {
+    case host
+    case thisDevice
+
+    var id: String { rawValue }
+
+    func title(hostName: String) -> String {
+        switch self {
+        case .host:
+            return hostName.isEmpty ? "Host" : hostName
+        case .thisDevice:
+            return "This device"
+        }
+    }
 }
 
 struct PlayRequest: Encodable {

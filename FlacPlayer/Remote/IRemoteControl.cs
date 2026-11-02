@@ -17,5 +17,9 @@ namespace FlacPlayer.Remote
         void Seek(long positionMs);
         void SetVolume(double level);
         bool TryGetAlbumCover(string albumId, out byte[] bytes, out string contentType);
+        /// <summary>Phase E: absolute path for streaming original file bytes.</summary>
+        bool TryGetSongFilePath(string songId, out string path, out string contentType);
+        /// <summary>Phase E: "host" keeps irrKlang; "remote" silences host while session continues.</summary>
+        void SetAudioOutput(string target, string deviceId, string deviceName);
     }
 }

@@ -23,9 +23,9 @@ struct NowPlayingView: View {
     #endif
 
     private var song: SongDto? { session.playback.currentSong }
-    private var duration: Double { Double(max(session.playback.durationMs, 0)) }
+    private var duration: Double { Double(max(session.effectiveDurationMs, 0)) }
     private var position: Double {
-        isScrubbing ? scrubPosition : Double(max(session.playback.positionMs, 0))
+        isScrubbing ? scrubPosition : Double(max(session.effectivePositionMs, 0))
     }
     private var progressFraction: Double {
         guard duration > 0 else { return 0 }
@@ -76,7 +76,7 @@ struct NowPlayingView: View {
                         onEditingChanged: { editing in
                             if editing {
                                 isScrubbing = true
-                                scrubPosition = Double(session.playback.positionMs)
+                                scrubPosition = Double(session.effectivePositionMs)
                             } else {
                                 isScrubbing = false
                                 Task { await session.seek(positionMs: Int64(scrubPosition)) }
@@ -95,6 +95,8 @@ struct NowPlayingView: View {
 
                 transportRow
 
+                playingOnPicker
+
                 Button {
                     Task { await session.toggleShuffle() }
                 } label: {
@@ -107,7 +109,7 @@ struct NowPlayingView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Volume")
+                    Text(session.usesDeviceVolume ? "Device volume" : "Host volume")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     HStack {
@@ -222,7 +224,7 @@ struct NowPlayingView: View {
             Task {
                 try? await Task.sleep(nanoseconds: UInt64(LydMotion.cinemaIdleSeconds * 1_000_000_000))
                 guard !Task.isCancelled, captured == idleReset else { return }
-                guard session.playback.isPlaying else { return }
+                guard session.effectiveIsPlaying else { return }
                 withAnimation(.easeInOut(duration: 0.6)) {
                     cinemaMode = true
                 }
@@ -344,7 +346,7 @@ struct NowPlayingView: View {
                 .frame(maxWidth: maxWidth)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .shadow(color: washColor.opacity(0.55), radius: 28, y: 16)
-                .lydBreathing(isPlaying: session.playback.isPlaying, reduceMotion: reduceMotion)
+                .lydBreathing(isPlaying: session.effectiveIsPlaying, reduceMotion: reduceMotion)
                 .accessibilityHidden(true)
         }
     }
@@ -410,8 +412,32 @@ struct NowPlayingView: View {
                 Task { await session.toggleShuffle() }
             }
 
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Playing on")
+                    .font(.title3)
+                    .foregroundStyle(Color.secondary)
+                HStack(spacing: 16) {
+                    TVNowPlayingButton(
+                        title: PlaybackOutputMode.host.title(hostName: session.selectedDisplayName),
+                        systemImage: "desktopcomputer",
+                        emphasized: session.playingOn == .host
+                    ) {
+                        bumpIdleTimer()
+                        Task { await session.setPlayingOn(.host) }
+                    }
+                    TVNowPlayingButton(
+                        title: "This device",
+                        systemImage: "appletv",
+                        emphasized: session.playingOn == .thisDevice
+                    ) {
+                        bumpIdleTimer()
+                        Task { await session.setPlayingOn(.thisDevice) }
+                    }
+                }
+            }
+
             HStack(spacing: 20) {
-                Text("Volume")
+                Text(session.usesDeviceVolume ? "Device volume" : "Host volume")
                     .font(.title3)
                     .foregroundStyle(Color.secondary)
                 TVNowPlayingButton(title: "Down", systemImage: "speaker.wave.1.fill") {
@@ -535,7 +561,7 @@ struct NowPlayingView: View {
                 noteUserActivity()
                 Task { await session.playPause() }
             } label: {
-                Image(systemName: session.playback.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                Image(systemName: session.effectiveIsPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 84))
                     .foregroundStyle(playAccentColor)
                     .animation(
@@ -572,6 +598,32 @@ struct NowPlayingView: View {
         #endif
     }
 
+    #if os(iOS)
+    private var playingOnPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Playing on")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Picker(
+                "Playing on",
+                selection: Binding(
+                    get: { session.playingOn },
+                    set: { mode in
+                        Task { await session.setPlayingOn(mode) }
+                    }
+                )
+            ) {
+                Text(PlaybackOutputMode.host.title(hostName: session.selectedDisplayName))
+                    .tag(PlaybackOutputMode.host)
+                Text(PlaybackOutputMode.thisDevice.title(hostName: session.selectedDisplayName))
+                    .tag(PlaybackOutputMode.thisDevice)
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal)
+    }
+    #endif
+
     @ViewBuilder
     private var statusFooter: some View {
         if let status = session.statusMessage {
@@ -581,6 +633,9 @@ struct NowPlayingView: View {
         }
 
         Text("Controlling \(session.selectedDisplayName) · \(session.selectedEndpoint)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        Text("Playing on \(session.playingOn.title(hostName: session.selectedDisplayName))")
             .font(.caption)
             .foregroundStyle(.secondary)
     }

@@ -53,6 +53,17 @@ namespace FlacPlayer.Remote
         public string CurrentSongId { get; set; }
         public SongDto CurrentSong { get; set; }
         public double Volume { get; set; }
+        /// <summary>Phase E: "host" (irrKlang) or "remote" (Apple AVPlayer pulls /stream).</summary>
+        public string OutputTarget { get; set; }
+        public string OutputDeviceId { get; set; }
+    }
+
+    public sealed class PlaybackOutputRequest
+    {
+        /// <summary>"host" or "remote".</summary>
+        public string Target { get; set; }
+        public string DeviceId { get; set; }
+        public string DeviceName { get; set; }
     }
 
     public sealed class PlayRequest

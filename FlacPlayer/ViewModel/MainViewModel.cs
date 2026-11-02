@@ -25,6 +25,9 @@ namespace FlacPlayer.ViewModel
         private readonly IPlayer Player;
         private readonly IWebSocketService WebSocketService;
         private int _libraryRevision;
+        /// <summary>Phase E: true when an Apple (or other) client is the audio renderer.</summary>
+        private bool _remoteAudioOutput;
+        private string _remoteAudioOutputDeviceId;
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
@@ -1383,6 +1386,11 @@ namespace FlacPlayer.ViewModel
             GetSongDuration();
             UpdateCurrentSong(song);
             AddSongsToQueue();
+            // Phase E: session updates on host, but audio may render on an Apple client.
+            if (_remoteAudioOutput)
+            {
+                Pause();
+            }
             RaisePropertyChanged(nameof(IsPlaying));
         }
 
@@ -1726,7 +1734,9 @@ namespace FlacPlayer.ViewModel
                 DurationMs = duration,
                 CurrentSongId = CurrentPlayingSong != null ? CurrentPlayingSong.ID : null,
                 CurrentSong = CurrentPlayingSong != null && !string.IsNullOrEmpty(CurrentPlayingSong.Path) ? MapSongDto(CurrentPlayingSong) : null,
-                Volume = Player.GetVolume()
+                Volume = Player.GetVolume(),
+                OutputTarget = _remoteAudioOutput ? "remote" : "host",
+                OutputDeviceId = _remoteAudioOutputDeviceId
             };
         }
 
@@ -1734,6 +1744,38 @@ namespace FlacPlayer.ViewModel
         {
             Song song = Songs.FirstOrDefault(s => s.ID == songId);
             PlayOnDemand(song);
+        }
+
+        /// <summary>Phase E: when Apple (or another remote) renders audio, silence irrKlang but keep session/queue.</summary>
+        public void RemoteSetAudioOutput(string target, string deviceId, string deviceName)
+        {
+            bool remote = string.Equals(target, "remote", StringComparison.OrdinalIgnoreCase);
+            _remoteAudioOutput = remote;
+            _remoteAudioOutputDeviceId = remote ? deviceId : null;
+            if (remote)
+            {
+                Pause();
+            }
+            RaisePropertyChanged(nameof(IsPlaying));
+        }
+
+        public bool TryGetRemoteSongFilePath(string songId, out string path, out string contentType)
+        {
+            path = null;
+            contentType = "application/octet-stream";
+            Song song = Songs.FirstOrDefault(s => s.ID == songId);
+            if (song == null || string.IsNullOrEmpty(song.Path) || !System.IO.File.Exists(song.Path))
+            {
+                return false;
+            }
+            path = song.Path;
+            string ext = System.IO.Path.GetExtension(song.Path) ?? string.Empty;
+            if (ext.Equals(".flac", StringComparison.OrdinalIgnoreCase)) contentType = "audio/flac";
+            else if (ext.Equals(".mp3", StringComparison.OrdinalIgnoreCase)) contentType = "audio/mpeg";
+            else if (ext.Equals(".m4a", StringComparison.OrdinalIgnoreCase) || ext.Equals(".aac", StringComparison.OrdinalIgnoreCase)) contentType = "audio/mp4";
+            else if (ext.Equals(".wav", StringComparison.OrdinalIgnoreCase)) contentType = "audio/wav";
+            else if (ext.Equals(".ogg", StringComparison.OrdinalIgnoreCase)) contentType = "audio/ogg";
+            return true;
         }
 
         /// <summary>

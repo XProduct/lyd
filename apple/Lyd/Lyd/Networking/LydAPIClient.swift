@@ -147,12 +147,26 @@ final class LydAPIClient: @unchecked Sendable {
         try await post("api/v1/playback/volume", body: VolumeRequest(level: clamped))
     }
 
+    /// Phase E: tell host whether irrKlang or a remote client renders audio.
+    func setPlaybackOutput(target: String, deviceId: String?, deviceName: String?) async throws {
+        try await post(
+            "api/v1/playback/output",
+            body: PlaybackOutputRequest(target: target, deviceId: deviceId, deviceName: deviceName)
+        )
+    }
+
     func coverURL(for relativeOrAbsolute: String?) -> URL? {
         guard let value = relativeOrAbsolute, !value.isEmpty else { return nil }
         if let absolute = URL(string: value), absolute.scheme != nil {
             return absolute
         }
         return URL(string: value, relativeTo: baseURL)?.absoluteURL
+    }
+
+    /// Phase E: original-file stream URL for AVPlayer (`Range`-capable on the host).
+    func streamURL(songId: String) -> URL? {
+        let encoded = songId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? songId
+        return URL(string: "api/v1/stream/songs/\(encoded)", relativeTo: baseURL)?.absoluteURL
     }
 
     // MARK: - HTTP
