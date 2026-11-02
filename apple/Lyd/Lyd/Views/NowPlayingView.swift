@@ -9,6 +9,7 @@ struct NowPlayingView: View {
     #if os(tvOS)
     @State private var cinemaMode = false
     @State private var idleReset = UUID()
+    @FocusState private var cinemaSurfaceFocused: Bool
     #endif
 
     private var song: SongDto? { session.playback.currentSong }
@@ -22,6 +23,14 @@ struct NowPlayingView: View {
     }
     private var washColor: Color {
         LydMotion.washColor(for: song?.albumId ?? song?.id)
+    }
+    /// Play/pause accent — wash-matched on tvOS, brand purple on iPad.
+    private var playAccentColor: Color {
+        #if os(tvOS)
+        washColor
+        #else
+        LydTheme.primary
+        #endif
     }
 
     var body: some View {
@@ -203,15 +212,30 @@ struct NowPlayingView: View {
                 withAnimation(.easeInOut(duration: 0.6)) {
                     cinemaMode = true
                 }
+                cinemaSurfaceFocused = true
             }
         }
-        .onExitCommand {
-            if cinemaMode {
-                bumpIdleTimer()
+        .onChange(of: cinemaMode) { _, enabled in
+            if enabled {
+                cinemaSurfaceFocused = true
             }
+        }
+        // Any Siri Remote interaction exits idle cinema and resets the timer.
+        .onMoveCommand { _ in
+            bumpIdleTimer()
+        }
+        .onPlayPauseCommand {
+            bumpIdleTimer()
+            Task { await session.playPause() }
+        }
+        .onExitCommand {
+            bumpIdleTimer()
         }
         .simultaneousGesture(
             TapGesture().onEnded { bumpIdleTimer() }
+        )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 8).onChanged { _ in bumpIdleTimer() }
         )
     }
 
@@ -271,19 +295,35 @@ struct NowPlayingView: View {
 
     /// Idle cinema: large art + metadata; chrome faded (Phase D #9).
     private var tvOSCinemaPage: some View {
-        VStack(spacing: 36) {
-            Spacer(minLength: 0)
-            coverArtBlock(maxWidth: 640)
-                .frame(maxWidth: 640)
-            metadataBlock(centered: true)
-                .id(song?.id ?? "none")
-            progressReadout
-                .frame(maxWidth: 640)
-            Spacer(minLength: 0)
+        ZStack {
+            VStack(spacing: 28) {
+                Spacer(minLength: 0)
+                coverArtBlock(maxWidth: 640)
+                    .frame(maxWidth: 640)
+                metadataBlock(centered: true)
+                    .id(song?.id ?? "none")
+                progressReadout
+                    .frame(maxWidth: 640)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Focusable catcher so click / select / arrows hit something while chrome is hidden.
+            Button(action: bumpIdleTimer) {
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focused($cinemaSurfaceFocused)
+            .accessibilityLabel("Exit cinema mode")
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture { bumpIdleTimer() }
+        .focusable()
+        .onMoveCommand { _ in bumpIdleTimer() }
+        .onPlayPauseCommand {
+            bumpIdleTimer()
+            Task { await session.playPause() }
+        }
     }
 
     private func coverArtBlock(maxWidth: CGFloat) -> some View {
@@ -417,11 +457,12 @@ struct NowPlayingView: View {
     private func metadataBlock(centered: Bool) -> some View {
         let textAlignment: TextAlignment = centered ? .center : .leading
         #if os(tvOS)
-        let titleFont: Font = .largeTitle.bold()
-        let artistFont: Font = .title2
-        let albumFont: Font = .title3
-        let techFont: Font = .body.monospacedDigit()
-        let spacing: CGFloat = 8
+        // Slightly tighter than largeTitle stack so artist/album aren't clipped at the bottom.
+        let titleFont: Font = .title.bold()
+        let artistFont: Font = .title3
+        let albumFont: Font = .body
+        let techFont: Font = .callout.monospacedDigit()
+        let spacing: CGFloat = 6
         #else
         let titleFont: Font = .title2.bold()
         let artistFont: Font = .title3
@@ -434,18 +475,20 @@ struct NowPlayingView: View {
                 .font(titleFont)
                 .foregroundStyle(Color.primary)
                 .multilineTextAlignment(textAlignment)
-                .lineLimit(3)
+                .lineLimit(2)
 
             Text(song?.displayArtist ?? session.selectedDisplayName)
                 .font(artistFont)
                 .foregroundStyle(Color.secondary)
                 .multilineTextAlignment(textAlignment)
+                .lineLimit(1)
 
             if let album = song?.album?.nilIfEmpty {
                 Text(album)
                     .font(albumFont)
                     .foregroundStyle(Color.secondary)
                     .multilineTextAlignment(textAlignment)
+                    .lineLimit(1)
             }
 
             if let tech = song?.technicalSummary {
@@ -453,6 +496,7 @@ struct NowPlayingView: View {
                     .font(techFont)
                     .foregroundStyle(Color.secondary)
                     .multilineTextAlignment(textAlignment)
+                    .lineLimit(1)
                     .padding(.top, 2)
             }
         }
@@ -477,7 +521,11 @@ struct NowPlayingView: View {
             } label: {
                 Image(systemName: session.playback.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                     .font(.system(size: 84))
-                    .foregroundStyle(LydTheme.primary)
+                    .foregroundStyle(playAccentColor)
+                    .animation(
+                        reduceMotion ? nil : .easeInOut(duration: LydMotion.washDuration),
+                        value: song?.albumId ?? song?.id
+                    )
             }
 
             Button {
