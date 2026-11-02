@@ -25,7 +25,7 @@ struct AlbumDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                     Button {
-                        Task { await session.playAlbum(albumId: album.id) }
+                        Task { @MainActor in await session.playAlbum(albumId: album.id) }
                     } label: {
                         Label("Play Album", systemImage: "play.fill")
                             .font(.body.weight(.semibold))
@@ -55,7 +55,10 @@ struct AlbumDetailView: View {
             Section("Tracks") {
                 ForEach(tracks) { song in
                     SongRow(song: song) {
-                        Task { await session.play(songId: song.id) }
+                        // Unstructured + MainActor: survive tab switch while play handoff runs.
+                        Task { @MainActor in
+                            await session.play(songId: song.id, fromAlbumId: album.id)
+                        }
                     }
                 }
             }

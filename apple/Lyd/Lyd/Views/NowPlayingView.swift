@@ -55,101 +55,112 @@ struct NowPlayingView: View {
 
     #if os(iOS)
     private var iOSBody: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                ScrollablePageTitle(title: "Now Playing")
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 24) {
+                    Color.clear.frame(height: 0).id("nowPlayingTop")
 
-                CoverImage(url: coverURL)
-                    .frame(maxWidth: 360)
-                    .aspectRatio(1, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    ScrollablePageTitle(title: "Now Playing")
 
-                metadataBlock(centered: true)
+                    CoverImage(url: coverURL)
+                        .frame(maxWidth: 360)
+                        .aspectRatio(1, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-                VStack(spacing: 8) {
-                    Slider(
-                        value: Binding(
-                            get: { position },
-                            set: { scrubPosition = $0 }
-                        ),
-                        in: 0...max(duration, 1),
-                        onEditingChanged: { editing in
-                            if editing {
-                                isScrubbing = true
-                                scrubPosition = Double(session.effectivePositionMs)
-                            } else {
-                                isScrubbing = false
-                                Task { await session.seek(positionMs: Int64(scrubPosition)) }
-                            }
-                        }
-                    )
-                    HStack {
-                        Text(format(ms: Int64(position)))
-                        Spacer()
-                        Text(format(ms: Int64(duration)))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal)
+                    metadataBlock(centered: true)
 
-                transportRow
-
-                playingOnPicker
-
-                Button {
-                    Task { await session.toggleShuffle() }
-                } label: {
-                    Label(
-                        session.playback.shuffle ? "Shuffle On" : "Shuffle Off",
-                        systemImage: "shuffle"
-                    )
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(session.playback.shuffle ? LydTheme.primary : Color.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(session.usesDeviceVolume ? "Device volume" : "Host volume")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Image(systemName: "speaker.fill")
+                    VStack(spacing: 8) {
                         Slider(
                             value: Binding(
-                                get: { volumeDraft },
-                                set: { volumeDraft = $0 }
+                                get: { position },
+                                set: { scrubPosition = $0 }
                             ),
-                            in: 0...1,
+                            in: 0...max(duration, 1),
                             onEditingChanged: { editing in
-                                if !editing {
-                                    Task { await session.setVolume(volumeDraft) }
+                                if editing {
+                                    isScrubbing = true
+                                    scrubPosition = Double(session.effectivePositionMs)
+                                } else {
+                                    isScrubbing = false
+                                    Task { await session.seek(positionMs: Int64(scrubPosition)) }
                                 }
                             }
                         )
-                        Image(systemName: "speaker.wave.3.fill")
+                        HStack {
+                            Text(format(ms: Int64(position)))
+                            Spacer()
+                            Text(format(ms: Int64(duration)))
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
-                }
-                .padding(.horizontal)
-                .onChange(of: session.playback.volume) { _, newValue in
-                    if abs(newValue - volumeDraft) > 0.02 {
-                        volumeDraft = newValue
-                    }
-                }
+                    .padding(.horizontal)
 
-                statusFooter
+                    transportRow
+
+                    playingOnPicker
+
+                    Button {
+                        Task { await session.toggleShuffle() }
+                    } label: {
+                        Label(
+                            session.playback.shuffle ? "Shuffle On" : "Shuffle Off",
+                            systemImage: "shuffle"
+                        )
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(session.playback.shuffle ? LydTheme.primary : Color.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(session.usesDeviceVolume ? "Device volume" : "Host volume")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Image(systemName: "speaker.fill")
+                            Slider(
+                                value: Binding(
+                                    get: { volumeDraft },
+                                    set: { volumeDraft = $0 }
+                                ),
+                                in: 0...1,
+                                onEditingChanged: { editing in
+                                    if !editing {
+                                        Task { await session.setVolume(volumeDraft) }
+                                    }
+                                }
+                            )
+                            Image(systemName: "speaker.wave.3.fill")
+                        }
+                    }
+                    .padding(.horizontal)
+                    .onChange(of: session.playback.volume) { _, newValue in
+                        if abs(newValue - volumeDraft) > 0.02 {
+                            volumeDraft = newValue
+                        }
+                    }
+
+                    statusFooter
+                }
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 48)
             }
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .padding(.bottom, 48)
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollableNavigationTitle(hideBar: true)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HostOfflineBanner()
+            }
+            .onAppear { volumeDraft = session.playback.volume }
+            .onChange(of: session.nowPlayingScrollToken) { _, _ in
+                DispatchQueue.main.async {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo("nowPlayingTop", anchor: .top)
+                    }
+                }
+            }
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollableNavigationTitle(hideBar: true)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HostOfflineBanner()
-        }
-        .onAppear { volumeDraft = session.playback.volume }
     }
     #endif
 
@@ -172,26 +183,37 @@ struct NowPlayingView: View {
                     tvOSCinemaPage
                         .frame(width: geo.size.width, height: geo.size.height)
                 } else {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            tvOSPrimaryPage
-                                .frame(minHeight: max(geo.size.height, 720))
-                                .padding(.horizontal, 48)
-                                .padding(.top, 12)
-                                .padding(.bottom, 12)
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Color.clear.frame(height: 0).id("nowPlayingTop")
 
-                            Color.clear
-                                .frame(height: secondaryOffset)
-                                .accessibilityHidden(true)
+                                tvOSPrimaryPage
+                                    .frame(minHeight: max(geo.size.height, 720))
+                                    .padding(.horizontal, 48)
+                                    .padding(.top, 12)
+                                    .padding(.bottom, 12)
 
-                            tvOSSecondarySection
-                                .padding(.horizontal, 48)
-                                .padding(.bottom, 80)
+                                Color.clear
+                                    .frame(height: secondaryOffset)
+                                    .accessibilityHidden(true)
+
+                                tvOSSecondarySection
+                                    .padding(.horizontal, 48)
+                                    .padding(.bottom, 80)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // Keep ScrollView dark; `.scrollContentBackground` is iOS-only.
+                        .background(LydTheme.nowPlayingBackground)
+                        .onChange(of: session.nowPlayingScrollToken) { _, _ in
+                            DispatchQueue.main.async {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    proxy.scrollTo("nowPlayingTop", anchor: .top)
+                                }
+                            }
+                        }
                     }
-                    // Keep ScrollView dark; `.scrollContentBackground` is iOS-only.
-                    .background(LydTheme.nowPlayingBackground)
                 }
             }
         }

@@ -41,7 +41,7 @@ struct SongsView: View {
                     #if os(iOS)
                     dismissSearchKeyboard()
                     #endif
-                    Task { await session.play(songId: song.id) }
+                    Task { @MainActor in await session.play(songId: song.id) }
                 }
             }
         }

@@ -27,6 +27,8 @@ final class LydSession: ObservableObject {
 
     @Published var phase: Phase = .pickingHost
     @Published var selectedTab: AppTab = .albums
+    /// Bumped when navigating to Now Playing from a play action — view scrolls to top.
+    @Published private(set) var nowPlayingScrollToken: UInt64 = 0
     @Published var selectedDisplayName: String = "Lyd"
     @Published var selectedEndpoint: String = ""
     @Published private(set) var library = LibraryDto(songs: [], albums: [], revision: -1)
@@ -509,34 +511,56 @@ final class LydSession: ObservableObject {
     }
 
     func play(songId: String) async {
-        selectedTab = .nowPlaying
+        await play(songId: songId, fromAlbumId: nil)
+    }
+
+    /// Play a track. When `fromAlbumId` is set (album detail), shuffle off so the host
+    /// keeps album queue context / Next in disc-track order from this song.
+    func play(songId: String, fromAlbumId: String?) async {
+        // Hold off stale poll/output handoff from stopping the new stream (first-tap race).
+        ignoreHostTransportUntil = Date().addingTimeInterval(2.0)
         await ensurePlaybackOutputsReady()
         if isLocalAudioOutput {
-            // Optimistic stream start — host mutate catches up; same songId avoids restart.
-            ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
             await startLocalStream(songId: songId, atMs: 0, autoplay: true)
         }
-        await mutate { try await $0.play(songId: songId) }
-        // If host ack left us local but AVPlayer never started (race / failed first start), retry.
-        if isLocalAudioOutput, localPlayer.currentSongId != songId || (!localPlayer.isPlaying && playback.isPlaying) {
-            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
-        } else if isLocalAudioOutput, !localPlayer.isPlaying, localPlayer.currentSongId == songId {
-            localPlayer.resume()
+        await mutate { client in
+            if fromAlbumId != nil {
+                try? await client.shuffle(enabled: false)
+            }
+            try await client.play(songId: songId)
         }
+        // Host ack / output sticky may have raced the first start — ensure AVPlayer matches.
+        let resolvedId = playback.currentSongId ?? songId
+        if isLocalAudioOutput {
+            if localPlayer.currentSongId != resolvedId || (!localPlayer.isPlaying && playback.isPlaying) {
+                ignoreHostTransportUntil = Date().addingTimeInterval(1.5)
+                await startLocalStream(songId: resolvedId, atMs: 0, autoplay: true)
+            } else if !localPlayer.isPlaying, localPlayer.currentSongId == resolvedId {
+                localPlayer.resume()
+            }
+        }
+        navigateToNowPlaying()
     }
 
     /// Shuffle off + play album in disc/track order (Windows `play-album`).
     func playAlbum(albumId: String) async {
-        selectedTab = .nowPlaying
+        ignoreHostTransportUntil = Date().addingTimeInterval(2.0)
         await ensurePlaybackOutputsReady()
         await mutate { client in
             try? await client.shuffle(enabled: false)
             try await client.playAlbum(albumId: albumId)
         }
         if isLocalAudioOutput, let songId = playback.currentSongId {
-            ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
+            ignoreHostTransportUntil = Date().addingTimeInterval(1.5)
             await startLocalStream(songId: songId, atMs: 0, autoplay: true)
         }
+        navigateToNowPlaying()
+    }
+
+    /// Switch to Now Playing and ask the page to scroll to the top.
+    func navigateToNowPlaying() {
+        selectedTab = .nowPlaying
+        nowPlayingScrollToken &+= 1
     }
 
     func playPause() async {
@@ -747,14 +771,24 @@ final class LydSession: ObservableObject {
     }
 
     /// Guarantees at least one renderer before play/seek transport hits the host.
+    /// Applies the POST response so play does not race an in-flight output handoff.
     private func ensurePlaybackOutputsReady() async {
-        let normalized = Self.nonEmptyOutputTargets(outputTargetIds)
+        var normalized = Self.nonEmptyOutputTargets(outputTargetIds)
+        if !allowMultiOutput, normalized.count > 1 {
+            normalized = Self.collapseToSingleOutput(normalized)
+        }
         if normalized != outputTargetIds {
             outputTargetIds = normalized
         }
         pendingOutputTargetIds = normalized
         pendingOutputUntil = Date().addingTimeInterval(3.0)
-        await pushOutputTargetsToHost()
+        if let state = await pushOutputTargetsToHost() {
+            pendingOutputTargetIds = nil
+            pendingOutputUntil = nil
+            // Apply outputs / flag only — avoid song/transport clobber during play handoff.
+            syncOutputTargets(from: state)
+            noteHostTimelineSample(state)
+        }
     }
 
     private static func nonEmptyOutputTargets(_ ids: Set<String>) -> Set<String> {
@@ -996,6 +1030,7 @@ final class LydSession: ObservableObject {
         let previouslyLocal = isLocalAudioOutput
         syncOutputTargets(from: remote)
         let nowLocal = isLocalAudioOutput
+        let suppressTransport = ignoreHostTransportUntil.map { Date() < $0 } ?? false
         // Always refresh the local timeline sample — even when not rendering — so a later
         // join uses a clock-skew-safe base instead of raw AnchorUnixMs vs iOS wall clock.
         noteHostTimelineSample(remote)
@@ -1007,7 +1042,6 @@ final class LydSession: ObservableObject {
                 merged.durationMs = localPlayer.durationMs
             }
             merged.volume = Double(localPlayer.volume)
-            let suppressTransport = ignoreHostTransportUntil.map { Date() < $0 } ?? false
             if !suppressTransport {
                 merged.isPlaying = remote.isPlaying
             } else {
@@ -1023,13 +1057,17 @@ final class LydSession: ObservableObject {
                 await startLocalStream(
                     songId: songId,
                     atMs: target,
-                    autoplay: remote.isPlaying
+                    autoplay: remote.isPlaying || suppressTransport
                 )
                 return
             }
 
             let songId = remote.currentSongId
             if let songId, songId != localPlayer.currentSongId {
+                // Stale poll during play handoff must not replace the optimistic stream.
+                if suppressTransport, localPlayer.currentSongId != nil {
+                    return
+                }
                 lastAppliedSeekGeneration = remote.seekGeneration ?? lastAppliedSeekGeneration
                 didCorrectiveTimelineSeekThisItem = false
                 let target = hostTimelineDesiredMs()
@@ -1042,6 +1080,7 @@ final class LydSession: ObservableObject {
             }
 
             if songId == nil, localPlayer.currentSongId != nil {
+                if suppressTransport { return }
                 localPlayer.stop()
                 return
             }
@@ -1050,11 +1089,13 @@ final class LydSession: ObservableObject {
             let generation = remote.seekGeneration ?? 0
             if generation != lastAppliedSeekGeneration {
                 lastAppliedSeekGeneration = generation
-                let target = hostTimelineDesiredMs()
-                // Generous seek tolerance — precise mid-stream seeks rebuffer and click.
-                if abs(target - localPlayer.positionMs) > 400 {
-                    await localPlayer.seek(positionMs: target, precise: false)
-                    localPlayer.setPlaybackRate(1.0)
+                if !suppressTransport {
+                    let target = hostTimelineDesiredMs()
+                    // Generous seek tolerance — precise mid-stream seeks rebuffer and click.
+                    if abs(target - localPlayer.positionMs) > 400 {
+                        await localPlayer.seek(positionMs: target, precise: false)
+                        localPlayer.setPlaybackRate(1.0)
+                    }
                 }
             }
 
@@ -1071,10 +1112,13 @@ final class LydSession: ObservableObject {
                 await followHostTimeline(remote, allowJoinSeek: false)
             }
         } else {
-            if previouslyLocal {
+            // Don't drop AVPlayer when a transient poll/output race clears This device mid-handoff.
+            if previouslyLocal, !suppressTransport {
                 localPlayer.stop()
             }
-            playback = remote
+            if !suppressTransport {
+                playback = remote
+            }
         }
     }
 
