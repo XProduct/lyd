@@ -72,19 +72,17 @@ final class LydSession: ObservableObject {
     /// Optimistic Playing on selection — polls must not clobber until host matches or grace ends.
     private var pendingOutputTargetIds: Set<String>?
     private var pendingOutputUntil: Date?
-    /// Phase F: last time we hard-sought to the host timeline (avoid seek storms).
-    private var lastTimelineSeekAt: Date?
+    /// Phase F: at most one mid-track corrective hard seek per song (join/track start is separate).
+    private var didCorrectiveTimelineSeekThisItem = false
 
-    /// Phase F thresholds (plan: seek when far, rate-adjust to fine-tune; ~50–100 ms target).
+    /// Phase F: prefer rate-adjust for drift; hard seek only for huge skew (and once per track).
     private enum TimelineSync {
-        /// Hard seek when |skew| exceeds this (late join / big drift) — this device only.
-        static let seekSkewMs: Int64 = 500
+        /// Hard seek only when |skew| is huge — avoids audible seek chatter.
+        static let hardSeekSkewMs: Int64 = 2000
         /// Soft rate adjust when |skew| exceeds this.
         static let rateSkewMs: Int64 = 80
         static let rateFast: Float = 1.05
         static let rateSlow: Float = 0.95
-        /// Minimum gap between corrective hard seeks.
-        static let seekCooldown: TimeInterval = 1.5
     }
 
     /// This device is checked in Playing on → AVPlayer renders; unchecked = remote-only UI.
@@ -228,7 +226,7 @@ final class LydSession: ObservableObject {
         outputTargetIds = [LydOutputIds.host]
         pendingOutputTargetIds = nil
         pendingOutputUntil = nil
-        lastTimelineSeekAt = nil
+        didCorrectiveTimelineSeekThisItem = false
         registeredPlayers = []
         lastAppliedSeekGeneration = -1
         client = nil
@@ -920,8 +918,8 @@ final class LydSession: ObservableObject {
             // Late join / output enable: catch up alone to host timeline (don’t resync peers).
             if !previouslyLocal, let songId = remote.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? -1
+                didCorrectiveTimelineSeekThisItem = false
                 let target = remote.desiredPositionMs()
-                lastTimelineSeekAt = Date()
                 await startLocalStream(
                     songId: songId,
                     atMs: target,
@@ -933,8 +931,8 @@ final class LydSession: ObservableObject {
             let songId = remote.currentSongId
             if let songId, songId != localPlayer.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? lastAppliedSeekGeneration
+                didCorrectiveTimelineSeekThisItem = false
                 let target = remote.desiredPositionMs()
-                lastTimelineSeekAt = Date()
                 await startLocalStream(
                     songId: songId,
                     atMs: target,
@@ -948,12 +946,12 @@ final class LydSession: ObservableObject {
                 return
             }
 
+            // Host-initiated seek / transport bump — not drift chatter; apply once per generation.
             let generation = remote.seekGeneration ?? 0
             if generation != lastAppliedSeekGeneration {
                 lastAppliedSeekGeneration = generation
                 let target = remote.desiredPositionMs()
                 if abs(target - localPlayer.positionMs) > 150 {
-                    lastTimelineSeekAt = Date()
                     await localPlayer.seek(positionMs: target, precise: true)
                     localPlayer.setPlaybackRate(1.0)
                 }
@@ -967,7 +965,7 @@ final class LydSession: ObservableObject {
                 }
             }
 
-            // Phase F1: follow host timeline — seek if far, rate-adjust to fine-tune.
+            // Phase F: drift follow — rate-adjust; hard seek only if skew is huge (≤1×/track).
             if !suppressTransport, remote.isPlaying, localPlayer.currentSongId != nil {
                 await followHostTimeline(remote)
             }
@@ -985,21 +983,19 @@ final class LydSession: ObservableObject {
         let skew = desired - localPlayer.positionMs
         let absSkew = abs(skew)
 
-        if absSkew >= TimelineSync.seekSkewMs {
-            let cooledDown = lastTimelineSeekAt.map { Date().timeIntervalSince($0) >= TimelineSync.seekCooldown } ?? true
-            if cooledDown {
-                lastTimelineSeekAt = Date()
-                await localPlayer.seek(positionMs: desired, precise: true)
-                localPlayer.setPlaybackRate(1.0)
-                if remote.isPlaying, !localPlayer.isPlaying {
-                    localPlayer.resume()
-                }
+        // Hard seek only for huge skew, and at most once per track after join/start.
+        if absSkew >= TimelineSync.hardSeekSkewMs, !didCorrectiveTimelineSeekThisItem {
+            didCorrectiveTimelineSeekThisItem = true
+            await localPlayer.seek(positionMs: desired, precise: true)
+            localPlayer.setPlaybackRate(1.0)
+            if remote.isPlaying, !localPlayer.isPlaying {
+                localPlayer.resume()
             }
             return
         }
 
+        // Prefer rate-adjust for all ordinary drift (including former mid-size seek band).
         if absSkew >= TimelineSync.rateSkewMs {
-            // Behind host → speed up; ahead → slow down.
             localPlayer.setPlaybackRate(skew > 0 ? TimelineSync.rateFast : TimelineSync.rateSlow)
         } else if abs(localPlayer.playbackRate - 1.0) > 0.001 {
             localPlayer.setPlaybackRate(1.0)
