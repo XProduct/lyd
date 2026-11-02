@@ -30,6 +30,7 @@
 		0566AE314F7F29C3B056C683 /* HostPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostPreferences.swift; sourceTree = "<group>"; };
 		09359C12BD406BCB49DD1021 /* RemoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModels.swift; sourceTree = "<group>"; };
 		0F940C79140F1B643307E56C /* JSONCoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCoding.swift; sourceTree = "<group>"; };
+		445E9EFCE0230D95058E2C17 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		45DA6D67EDBF1F966C690AA8 /* LydSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LydSession.swift; sourceTree = "<group>"; };
 		503079D6F0B7EDDEB659E212 /* LydTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LydTheme.swift; sourceTree = "<group>"; };
 		69A97A9F19F97AC52B4389A8 /* HostAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAddress.swift; sourceTree = "<group>"; };
@@ -99,6 +100,7 @@
 				905D630859C4D993B41FD7C2 /* Theme */,
 				3DD7E18498DC82B9F7BC91C0 /* Views */,
 				95030A7DD9EF00DFCEF1C49A /* Assets.xcassets */,
+				445E9EFCE0230D95058E2C17 /* Info.plist */,
 				F2130C77D671F2F6858A2055 /* LydApp.swift */,
 			);
 			path = Lyd;
@@ -298,6 +300,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 899E8CDT3V;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Lyd/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Lyd;
 				INFOPLIST_KEY_NSBonjourServices = (
 					_lyd._tcp,
@@ -331,6 +334,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = 899E8CDT3V;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Lyd/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Lyd;
 				INFOPLIST_KEY_NSBonjourServices = (
 					_lyd._tcp,

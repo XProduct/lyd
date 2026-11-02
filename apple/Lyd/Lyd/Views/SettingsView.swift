@@ -81,6 +81,17 @@ struct SettingsView: View {
                 Text("Discovered hosts")
             }
 
+            #if os(tvOS)
+            Section {
+                Button {
+                    session.startDiscovery()
+                } label: {
+                    Text("Refresh discovery")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            #endif
+
             Section {
                 TextField("Host / IP", text: $manualHost)
                     #if os(iOS)
@@ -107,6 +118,7 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
         #endif
+        #if os(iOS)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -116,6 +128,8 @@ struct SettingsView: View {
                 }
             }
         }
+        #endif
+        // tvOS: refresh lives in the list (toolbar labels clip on the Siri Remote UI).
         .onAppear {
             session.startDiscovery()
             if !didLoadDefaults {

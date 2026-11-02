@@ -166,7 +166,8 @@ final class LydSession: ObservableObject {
         }
 
         disconnect(returnToPicker: false)
-        stopDiscovery()
+        // Keep Bonjour browsing while connecting so iOS Local Network permission /
+        // browse results are not torn down if auto-reconnect fails.
         phase = .connecting
         selectedDisplayName = displayName
         selectedEndpoint = HostAddress.endpointLabel(host: normalizedHost, port: port)
@@ -185,9 +186,12 @@ final class LydSession: ObservableObject {
                 playback = try await api.playbackState()
                 phase = .connected
                 startPolling()
+                // Connected — browsing optional; leave it running for Settings host list.
+                startDiscovery()
             } catch {
                 phase = .error(error.localizedDescription)
                 client = nil
+                startDiscovery()
             }
             isBusy = false
         }

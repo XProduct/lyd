@@ -26,6 +26,7 @@ targets:
         PRODUCT_NAME: Lyd
         DEVELOPMENT_TEAM: "899E8CDT3V"
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: Lyd/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: Lyd
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: Lyd discovers and controls your Lyd music player on the local network.
         INFOPLIST_KEY_NSBonjourServices: ["_lyd._tcp"]
