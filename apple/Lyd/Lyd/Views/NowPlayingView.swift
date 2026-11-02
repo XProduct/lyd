@@ -156,24 +156,25 @@ struct NowPlayingView: View {
             let secondaryOffset = max(geo.size.height * 0.9, 700)
 
             ZStack {
+                LydTheme.nowPlayingBackground
+                    .ignoresSafeArea()
+
                 ambientWash
                     .ignoresSafeArea()
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Group {
-                            if cinemaMode {
-                                tvOSCinemaPage
-                            } else {
-                                tvOSPrimaryPage
-                            }
-                        }
-                        .frame(minHeight: max(geo.size.height, 720))
-                        .padding(.horizontal, 48)
-                        .padding(.top, 12)
-                        .padding(.bottom, 12)
+                if cinemaMode {
+                    // Outside ScrollView — avoids light scroll chrome / white focus sheets.
+                    tvOSCinemaPage
+                        .frame(width: geo.size.width, height: geo.size.height)
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            tvOSPrimaryPage
+                                .frame(minHeight: max(geo.size.height, 720))
+                                .padding(.horizontal, 48)
+                                .padding(.top, 12)
+                                .padding(.bottom, 12)
 
-                        if !cinemaMode {
                             Color.clear
                                 .frame(height: secondaryOffset)
                                 .accessibilityHidden(true)
@@ -182,10 +183,11 @@ struct NowPlayingView: View {
                                 .padding(.horizontal, 48)
                                 .padding(.bottom, 80)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .scrollContentBackground(.hidden)
+                    .background(LydTheme.nowPlayingBackground)
                 }
-                .scrollDisabled(cinemaMode)
             }
         }
         .background(LydTheme.nowPlayingBackground.ignoresSafeArea())
@@ -300,31 +302,31 @@ struct NowPlayingView: View {
     }
 
     /// Idle cinema: large art + metadata; chrome faded (Phase D #9).
+    /// No full-screen Button — tvOS paints a white focus plate on focused buttons.
     private var tvOSCinemaPage: some View {
-        ZStack {
-            VStack(spacing: 28) {
-                Spacer(minLength: 0)
-                coverArtBlock(maxWidth: 640)
-                    .frame(maxWidth: 640)
-                metadataBlock(centered: true)
-                    .id(song?.id ?? "none")
-                progressReadout
-                    .frame(maxWidth: 640)
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            // Focusable catcher so click / select / arrows hit something while chrome is hidden.
-            Button(action: bumpIdleTimer) {
-                Color.clear
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .focused($cinemaSurfaceFocused)
-            .accessibilityLabel("Exit cinema mode")
+        VStack(spacing: 28) {
+            Spacer(minLength: 0)
+            coverArtBlock(maxWidth: 640)
+                .frame(maxWidth: 640)
+            metadataBlock(centered: true)
+                .id(song?.id ?? "none")
+            progressReadout
+                .frame(maxWidth: 640)
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, 48)
+        .background {
+            LydTheme.nowPlayingBackground
+                .overlay(ambientWash.opacity(0.85))
+                .ignoresSafeArea()
+        }
+        .contentShape(Rectangle())
         .focusable()
+        .focused($cinemaSurfaceFocused)
+        .focusEffectDisabled()
+        .accessibilityLabel("Now Playing cinema mode")
+        .onTapGesture { bumpIdleTimer() }
         .onMoveCommand { _ in bumpIdleTimer() }
         .onPlayPauseCommand {
             bumpIdleTimer()
