@@ -1594,19 +1594,8 @@ namespace FlacPlayer.ViewModel
 
         private void OpenSelectedAlbum()
         {
-            if (SelectedAlbum == null)
-            {
-                return;
-            }
-
-            string albumId = SelectedAlbum.Id ?? AlbumIdHelper.From(SelectedAlbum.Artist, SelectedAlbum.Title);
-            if (!ApplyAlbumPlayContext(albumId))
-            {
-                // Fallback for albums that only match by title (legacy library rows).
-                IsSelectedAlbumVisible = true;
-                SelectedAlbumSongs = new ObservableCollection<Song>(
-                    Songs.Where(x => x.Album == SelectedAlbum.Title).OrderBy(x => x.Disc).ThenBy(y => y.Track).ToList());
-            }
+            IsSelectedAlbumVisible = true;
+            SelectedAlbumSongs = new ObservableCollection<Song>(Songs.Where(x => x.Album == SelectedAlbum.Title).OrderBy(x => x.Disc).ThenBy(y => y.Track).ToList());
         }
 
         private void CloseSelectedAlbum()
@@ -1893,23 +1882,11 @@ namespace FlacPlayer.ViewModel
 
         public void RemotePlaySong(string songId)
         {
+            // Keep this path minimal: opening album UI context (SelectedAlbum /
+            // IsSelectedAlbumVisible) before PlayOnDemand regressed remote play on
+            // Apple clients. Queue context for album-detail can return later without
+            // touching WPF visibility during the play POST.
             Song song = Songs.FirstOrDefault(s => s.ID == songId);
-            if (song == null)
-            {
-                return;
-            }
-
-            // Same album context as play-album / desktop album view: with shuffle off,
-            // Next continues remaining disc/track order from the selected song.
-            if (!IsShuffleMode)
-            {
-                string albumId = song.AlbumId ?? AlbumIdHelper.From(song.Artist, song.Album);
-                if (!string.IsNullOrEmpty(albumId))
-                {
-                    ApplyAlbumPlayContext(albumId);
-                }
-            }
-
             PlayOnDemand(song);
         }
 
@@ -2138,27 +2115,6 @@ namespace FlacPlayer.ViewModel
                 return;
             }
 
-            if (!ApplyAlbumPlayContext(albumId))
-            {
-                return;
-            }
-
-            IsShuffleMode = false;
-            PlayOnDemand(SelectedAlbumSongs[0]);
-            RaisePropertyChanged(nameof(IsShuffleMode));
-        }
-
-        /// <summary>
-        /// Open album context (SelectedAlbumSongs in disc/track order) so AddSongsToQueue
-        /// mirrors desktop play-from-album. Returns false when the album has no tracks.
-        /// </summary>
-        private bool ApplyAlbumPlayContext(string albumId)
-        {
-            if (string.IsNullOrEmpty(albumId))
-            {
-                return false;
-            }
-
             Album album = Albums.FirstOrDefault(a => a.Id == albumId);
             var albumSongs = new ObservableCollection<Song>(
                 Songs
@@ -2170,7 +2126,7 @@ namespace FlacPlayer.ViewModel
 
             if (albumSongs.Count == 0)
             {
-                return false;
+                return;
             }
 
             if (album != null)
@@ -2179,7 +2135,9 @@ namespace FlacPlayer.ViewModel
             }
             SelectedAlbumSongs = albumSongs;
             IsSelectedAlbumVisible = true;
-            return true;
+            IsShuffleMode = false;
+            PlayOnDemand(albumSongs[0]);
+            RaisePropertyChanged(nameof(IsShuffleMode));
         }
 
         public void RemotePause()
