@@ -118,10 +118,33 @@ struct NowPlayingView: View {
     }
     #endif
 
-    // MARK: - tvOS landscape: art left, controls right
+    // MARK: - tvOS: primary playback page + scroll-down secondary
 
     #if os(tvOS)
     private var tvOSBody: some View {
+        GeometryReader { geo in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    tvOSPrimaryPage
+                        .frame(minHeight: max(geo.size.height - 96, 520))
+                        .padding(.horizontal, 48)
+                        .padding(.top, 36)
+                        .padding(.bottom, 24)
+
+                    tvOSSecondarySection
+                        .padding(.horizontal, 48)
+                        .padding(.top, 28)
+                        .padding(.bottom, 64)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .scrollableNavigationTitle()
+        .onAppear { volumeDraft = session.playback.volume }
+    }
+
+    /// Art + metadata + main transport — first screen; no seek / shuffle / volume.
+    private var tvOSPrimaryPage: some View {
         HStack(alignment: .center, spacing: 48) {
             CoverImage(url: coverURL)
                 .aspectRatio(1, contentMode: .fit)
@@ -130,77 +153,67 @@ struct NowPlayingView: View {
                 .shadow(color: .black.opacity(0.45), radius: 24, y: 14)
                 .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 28) {
                 ScrollablePageTitle(title: "Now Playing")
 
                 metadataBlock(centered: false)
 
-                progressBlock
-
                 transportRow
-                    .frame(maxWidth: .infinity)
-
-                HStack(spacing: 24) {
-                    TVNowPlayingButton(
-                        title: session.playback.shuffle ? "Shuffle On" : "Shuffle Off",
-                        systemImage: "shuffle",
-                        emphasized: session.playback.shuffle
-                    ) {
-                        Task { await session.toggleShuffle() }
-                    }
-
-                    TVNowPlayingButton(title: "−10s", systemImage: "gobackward.10") {
-                        Task { await session.seek(positionMs: max(0, Int64(position) - 10_000)) }
-                    }
-
-                    TVNowPlayingButton(title: "+10s", systemImage: "goforward.10") {
-                        Task { await session.seek(positionMs: min(Int64(duration), Int64(position) + 10_000)) }
-                    }
-                }
-
-                HStack(spacing: 20) {
-                    Text("Volume")
-                        .font(.title3)
-                        .foregroundStyle(Color.secondary)
-                    TVNowPlayingButton(title: "Down", systemImage: "speaker.wave.1.fill") {
-                        Task { await session.setVolume(max(0, session.playback.volume - 0.05)) }
-                    }
-                    Text("\(Int((session.playback.volume * 100).rounded()))%")
-                        .font(.title3.monospacedDigit())
-                        .foregroundStyle(Color.primary)
-                        .frame(minWidth: 72, alignment: .center)
-                    TVNowPlayingButton(title: "Up", systemImage: "speaker.wave.3.fill") {
-                        Task { await session.setVolume(min(1, session.playback.volume + 0.05)) }
-                    }
-                }
-
-                statusFooter
-                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .padding(48)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .scrollableNavigationTitle()
-        .onAppear { volumeDraft = session.playback.volume }
     }
 
-    private var progressBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ProgressView(value: duration > 0 ? position / duration : 0)
-                .tint(LydTheme.primary)
-                .scaleEffect(x: 1, y: 2, anchor: .center)
+    /// Shuffle, volume, and host status — reached by scrolling down.
+    private var tvOSSecondarySection: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            Text("More")
+                .font(.title.bold())
+                .foregroundStyle(Color.primary)
+                .accessibilityAddTraits(.isHeader)
 
-            HStack {
-                Text(format(ms: Int64(position)))
-                Spacer()
-                Text(format(ms: Int64(duration)))
+            TVNowPlayingButton(
+                title: session.playback.shuffle ? "Shuffle On" : "Shuffle Off",
+                systemImage: "shuffle",
+                emphasized: session.playback.shuffle
+            ) {
+                Task { await session.toggleShuffle() }
             }
-            .font(.title3.monospacedDigit())
-            .foregroundStyle(Color.secondary)
+
+            HStack(spacing: 20) {
+                Text("Volume")
+                    .font(.title3)
+                    .foregroundStyle(Color.secondary)
+                TVNowPlayingButton(title: "Down", systemImage: "speaker.wave.1.fill") {
+                    Task { await session.setVolume(max(0, session.playback.volume - 0.05)) }
+                }
+                Text("\(Int((session.playback.volume * 100).rounded()))%")
+                    .font(.title3.monospacedDigit())
+                    .foregroundStyle(Color.primary)
+                    .frame(minWidth: 72, alignment: .center)
+                TVNowPlayingButton(title: "Up", systemImage: "speaker.wave.3.fill") {
+                    Task { await session.setVolume(min(1, session.playback.volume + 0.05)) }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                if let status = session.statusMessage {
+                    Text(status)
+                        .font(.body)
+                        .foregroundStyle(.red)
+                }
+                Text("Controlling \(session.selectedDisplayName)")
+                    .font(.title3)
+                    .foregroundStyle(Color.secondary)
+                Text(session.selectedEndpoint)
+                    .font(.body)
+                    .foregroundStyle(Color.secondary)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     #endif
 
