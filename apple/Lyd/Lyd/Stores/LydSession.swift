@@ -251,16 +251,20 @@ final class LydSession: ObservableObject {
 
         if mode == .thisDevice {
             playingOn = .thisDevice
-            await registerThisPlayer()
-            await notifyHostOutput(remote: true)
+            configureLocalPlayerIfNeeded()
+            lastAppliedSeekGeneration = playback.seekGeneration ?? lastAppliedSeekGeneration
+            // Stream immediately; host output notify runs in parallel so UI isn't gated on HTTP.
+            async let registered: Void = registerThisPlayer()
+            async let output: Void = notifyHostOutput(remote: true)
+            if let songId {
+                await startLocalStream(songId: songId, atMs: position, autoplay: wasPlaying)
+            }
+            await registered
+            await output
             // Older hosts without /playback/output: keep irrKlang quiet without clearing
             // session desired-playing on newer hosts (RemotePause would do that).
             if playback.outputTarget == nil {
                 try? await client?.pause()
-            }
-            lastAppliedSeekGeneration = playback.seekGeneration ?? lastAppliedSeekGeneration
-            if let songId {
-                await startLocalStream(songId: songId, atMs: position, autoplay: wasPlaying)
             }
             await reportPlaybackHeartbeat()
         } else {
@@ -314,7 +318,11 @@ final class LydSession: ObservableObject {
 
     func play(songId: String) async {
         selectedTab = .nowPlaying
-        // Host owns the shared session; applyHostPlaybackState starts/resyncs AVPlayer.
+        if playingOn == .thisDevice {
+            // Optimistic stream start — host mutate catches up; same songId avoids restart.
+            ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+        }
         await mutate { try await $0.play(songId: songId) }
     }
 
@@ -351,6 +359,11 @@ final class LydSession: ObservableObject {
     }
 
     func next() async {
+        if playingOn == .thisDevice,
+           let peek = predictedNextSong(after: playback.currentSong) {
+            ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
+            await startLocalStream(songId: peek.id, atMs: 0, autoplay: true)
+        }
         await mutate { try await $0.next() }
     }
 
@@ -536,6 +549,18 @@ final class LydSession: ObservableObject {
             return
         }
         configureLocalPlayerIfNeeded()
+        // Same URL already rendering — just seek / resume instead of replacing the item.
+        if localPlayer.currentSongId == songId {
+            if atMs > 0 {
+                await localPlayer.seek(positionMs: atMs)
+            }
+            if autoplay {
+                localPlayer.resume()
+            } else {
+                localPlayer.pause()
+            }
+            return
+        }
         localPlayer.play(url: url, songId: songId, startAtMs: max(0, atMs), autoplay: autoplay)
         // Do NOT POST pause here — that clears shared session desired-playing.
     }
@@ -616,7 +641,10 @@ final class LydSession: ObservableObject {
             let generation = remote.seekGeneration ?? 0
             if generation != lastAppliedSeekGeneration {
                 lastAppliedSeekGeneration = generation
-                await localPlayer.seek(positionMs: remote.positionMs)
+                // Skip tiny/no-op seeks (e.g. host bump after our optimistic start at 0).
+                if abs(remote.positionMs - localPlayer.positionMs) > 1500 {
+                    await localPlayer.seek(positionMs: remote.positionMs)
+                }
             }
 
             if !suppressTransport {
