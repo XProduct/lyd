@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 enum AppTab: Hashable {
     case albums
@@ -15,6 +16,13 @@ final class LydSession: ObservableObject {
         case connecting
         case connected
         case error(String)
+    }
+
+    enum ManualValidateResult: Equatable {
+        case idle
+        case checking
+        case ok(name: String, endpoint: String)
+        case failed(message: String, endpoint: String)
     }
 
     @Published var phase: Phase = .pickingHost
@@ -33,15 +41,31 @@ final class LydSession: ObservableObject {
     )
     @Published var statusMessage: String?
     @Published var isBusy = false
+    /// True once connected; flipped false when health/playback/library polls fail until recovery.
+    @Published private(set) var isHostReachable = false
+    @Published private(set) var offlineMessage: String?
+    @Published var manualValidateResult: ManualValidateResult = .idle
 
     let browser = BonjourBrowser()
 
     private var client: LydAPIClient?
     private var libraryPollTask: Task<Void, Never>?
     private var playbackPollTask: Task<Void, Never>?
+    private var connectSource: ConnectSource = .unknown
+
+    private enum ConnectSource {
+        case bonjour
+        case manual
+        case unknown
+    }
 
     var songsByID: [String: SongDto] {
         Dictionary(uniqueKeysWithValues: library.songs.map { ($0.id, $0) })
+    }
+
+    /// Connected to a healthy host but catalog not populated yet (Dropbox / scan).
+    var isLibraryStillLoading: Bool {
+        phase == .connected && isHostReachable && library.songs.isEmpty && library.albums.isEmpty
     }
 
     func songs(for album: AlbumDto) -> [SongDto] {
@@ -67,15 +91,18 @@ final class LydSession: ObservableObject {
     }
 
     func connect(to host: DiscoveredHost) {
+        connectSource = .bonjour
         connect(host: host.host, port: host.port, displayName: host.displayTitle)
     }
 
     func connect(manual: ManualHost, displayName: String? = nil) {
+        connectSource = .manual
         connect(host: manual.host, port: manual.port, displayName: displayName ?? manual.endpointLabel)
     }
 
     func reconnectLastIfPossible() {
         guard let last = HostPreferences.lastSelection else { return }
+        connectSource = .unknown
         connect(host: last.host, port: last.port, displayName: last.displayName ?? last.host)
     }
 
@@ -85,6 +112,8 @@ final class LydSession: ObservableObject {
         libraryPollTask = nil
         playbackPollTask = nil
         client = nil
+        isHostReachable = false
+        offlineMessage = nil
         library = LibraryDto(songs: [], albums: [], revision: -1)
         playback = PlaybackStateDto(
             isPlaying: false,
@@ -101,15 +130,44 @@ final class LydSession: ObservableObject {
         }
     }
 
+    /// Validate manual host with `/health` before saving. Does not change the active session unless `connectAfter` is true.
+    func validateManualHost(_ manual: ManualHost, connectAfter: Bool) async {
+        let host = HostAddress.normalize(manual.host)
+        let endpoint = HostAddress.endpointLabel(host: host, port: manual.port)
+        guard let url = LydAPIClient.baseURL(host: host, port: manual.port) else {
+            manualValidateResult = .failed(message: "Invalid host or port", endpoint: endpoint)
+            return
+        }
+
+        manualValidateResult = .checking
+        let probe = LydAPIClient(baseURL: url)
+        do {
+            let health = try await probe.health()
+            let name = health.name.isEmpty ? endpoint : health.name
+            HostPreferences.lastManual = ManualHost(host: host, port: manual.port)
+            manualValidateResult = .ok(name: name, endpoint: endpoint)
+            if connectAfter {
+                connect(manual: ManualHost(host: host, port: manual.port), displayName: name)
+            }
+        } catch {
+            let detail = "\(error.localizedDescription) — tried \(url.absoluteString)"
+            manualValidateResult = .failed(message: detail, endpoint: endpoint)
+        }
+    }
+
     func refreshLibrary(force: Bool = false) async {
         guard let client else { return }
         do {
-            let next = try await client.library()
-            if force || next.revision != library.revision {
+            let result = try await client.syncLibrary(knownRevision: library.revision, force: force)
+            switch result {
+            case .unchanged:
+                markReachable()
+            case .updated(let next):
                 library = next
+                markReachable()
             }
         } catch {
-            statusMessage = error.localizedDescription
+            markUnreachable(error)
         }
     }
 
@@ -117,8 +175,41 @@ final class LydSession: ObservableObject {
         guard let client else { return }
         do {
             playback = try await client.playbackState()
+            markReachable()
         } catch {
-            statusMessage = error.localizedDescription
+            markUnreachable(error)
+        }
+    }
+
+    /// Foreground / Retry: ping health then resume polls if the host is back.
+    func retryHostConnection() async {
+        if client == nil {
+            reconnectLastIfPossible()
+            return
+        }
+        guard let client else { return }
+        do {
+            let health = try await client.health()
+            if !health.name.isEmpty {
+                selectedDisplayName = health.name
+            }
+            markReachable()
+            if phase != .connected {
+                phase = .connected
+            }
+            await refreshLibrary(force: false)
+            await refreshPlayback()
+            startPolling()
+        } catch {
+            markUnreachable(error)
+        }
+    }
+
+    func handleScenePhase(_ scenePhase: ScenePhase) {
+        guard scenePhase == .active else { return }
+        startDiscovery()
+        if client != nil || HostPreferences.lastSelection != nil {
+            Task { await retryHostConnection() }
         }
     }
 
@@ -131,8 +222,6 @@ final class LydSession: ObservableObject {
     func playAlbum(albumId: String) async {
         selectedTab = .nowPlaying
         await mutate { client in
-            // Explicit shuffle-off first so older hosts without play-album still get sequential intent
-            // when falling back isn't needed; play-album itself also clears shuffle.
             try? await client.shuffle(enabled: false)
             try await client.playAlbum(albumId: albumId)
         }
@@ -186,22 +275,35 @@ final class LydSession: ObservableObject {
         client = api
         isBusy = true
         statusMessage = nil
+        offlineMessage = nil
 
         Task {
             do {
                 let health = try await api.health()
-                HostPreferences.lastSelection = (normalizedHost, port, health.name.isEmpty ? displayName : health.name)
-                selectedDisplayName = health.name.isEmpty ? displayName : health.name
+                let resolvedName = health.name.isEmpty ? displayName : health.name
+                HostPreferences.lastSelection = (normalizedHost, port, resolvedName)
+                switch connectSource {
+                case .bonjour:
+                    HostPreferences.lastBonjour = (normalizedHost, port, resolvedName)
+                case .manual:
+                    HostPreferences.lastManual = ManualHost(host: normalizedHost, port: port)
+                case .unknown:
+                    break
+                }
+                selectedDisplayName = resolvedName
                 let lib = try await api.library()
                 library = lib
                 playback = try await api.playbackState()
                 phase = .connected
+                markReachable()
                 startPolling()
-                // Connected — browsing optional; leave it running for Settings host list.
                 startDiscovery()
             } catch {
-                phase = .error(error.localizedDescription)
+                let detail = "\(error.localizedDescription) — tried \(url.absoluteString)"
+                phase = .error(detail)
                 client = nil
+                isHostReachable = false
+                offlineMessage = detail
                 startDiscovery()
             }
             isBusy = false
@@ -215,7 +317,7 @@ final class LydSession: ObservableObject {
         libraryPollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
-                await self?.refreshLibrary()
+                await self?.refreshLibrary(force: false)
             }
         }
 
@@ -235,9 +337,28 @@ final class LydSession: ObservableObject {
             try await work(client)
             playback = try await client.playbackState()
             statusMessage = nil
+            markReachable()
         } catch {
             statusMessage = error.localizedDescription
+            markUnreachable(error)
         }
+    }
+
+    private func markReachable() {
+        isHostReachable = true
+        offlineMessage = nil
+        if case .error = phase {
+            phase = .connected
+        }
+    }
+
+    private func markUnreachable(_ error: Error) {
+        isHostReachable = false
+        let message = error.localizedDescription
+        offlineMessage = selectedEndpoint.isEmpty
+            ? message
+            : "Can't reach \(selectedEndpoint) — \(message)"
+        statusMessage = offlineMessage
     }
 
     private static func trackSort(_ lhs: SongDto, _ rhs: SongDto) -> Bool {

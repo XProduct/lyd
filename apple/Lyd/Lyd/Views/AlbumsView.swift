@@ -52,17 +52,12 @@ struct AlbumsView: View {
         .navigationDestination(for: AlbumDto.self) { album in
             AlbumDetailView(album: album)
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HostOfflineBanner()
+        }
         .overlay {
             if session.library.albums.isEmpty {
-                ContentUnavailableView(
-                    session.phase == .connected ? "No albums yet" : "Not connected",
-                    systemImage: "square.stack",
-                    description: Text(
-                        session.phase == .connected
-                            ? "Library revision \(max(session.library.revision, 0)). Waiting for the Windows host to finish scanning."
-                            : "Choose a Lyd host in Settings."
-                    )
-                )
+                LibraryEmptyState(libraryKind: .albums)
             }
         }
     }

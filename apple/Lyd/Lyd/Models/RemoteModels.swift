@@ -14,6 +14,11 @@ struct LibraryDto: Codable, Hashable {
     var revision: Int
 }
 
+/// Thin `GET /api/v1/library/revision` payload (Phase C). Older hosts may 404.
+struct LibraryRevisionDto: Codable, Hashable {
+    var revision: Int
+}
+
 struct SongDto: Codable, Hashable, Identifiable {
     var id: String
     var title: String?

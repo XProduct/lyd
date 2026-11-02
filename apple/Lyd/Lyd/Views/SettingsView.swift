@@ -3,7 +3,7 @@ import SwiftUI
 /// Host discovery + manual IP live here (replaces the old full-screen picker / Hosts toolbar button).
 struct SettingsView: View {
     @EnvironmentObject private var session: LydSession
-    @State private var manualHost = "192.168.44.154"
+    @State private var manualHost = ""
     @State private var manualPort = "8080"
     @State private var didLoadDefaults = false
 
@@ -21,6 +21,14 @@ struct SettingsView: View {
                         Text(session.selectedEndpoint)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                        if !session.isHostReachable {
+                            Text(session.offlineMessage ?? "Host unreachable")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                            TVContrastButton("Retry connection") {
+                                Task { await session.retryHostConnection() }
+                            }
+                        }
                     }
                     Button("Disconnect", role: .destructive) {
                         session.disconnect()
@@ -36,8 +44,9 @@ struct SettingsView: View {
                 case .error(let message):
                     Text(message)
                         .foregroundStyle(.red)
+                        .font(.footnote)
                     if let last = HostPreferences.lastSelection {
-                        TVContrastButton("Retry \(last.host):\(last.port)") {
+                        TVContrastButton("Retry \(HostAddress.endpointLabel(host: last.host, port: last.port))") {
                             session.reconnectLastIfPossible()
                         }
                     }
@@ -46,12 +55,14 @@ struct SettingsView: View {
                 Text("Current host")
             }
 
+            rememberedHostsSection
+
             Section {
                 if session.browser.hosts.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(session.browser.isBrowsing ? "Looking for Lyd on the LAN…" : "Not browsing")
                             .foregroundStyle(.secondary)
-                        Text("Service type `_lyd._tcp`. If nothing appears, use manual IP below.")
+                        Text("Service type `_lyd._tcp`. If nothing appears (AP isolation / firewall), use manual IP below.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -84,14 +95,38 @@ struct SettingsView: View {
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
-                TVContrastButton("Connect") {
-                    connectManual()
+
+                switch session.manualValidateResult {
+                case .idle:
+                    EmptyView()
+                case .checking:
+                    HStack {
+                        ProgressView()
+                        Text("Checking /health…")
+                    }
+                case .ok(let name, let endpoint):
+                    Text("OK — \(name) at \(endpoint)")
+                        .foregroundStyle(.green)
+                        .font(.footnote)
+                case .failed(let message, _):
+                    Text(message)
+                        .foregroundStyle(.red)
+                        .font(.footnote)
                 }
-                .disabled(!canConnectManual)
+
+                TVContrastButton("Validate") {
+                    validateManual(connectAfter: false)
+                }
+                .disabled(!canConnectManual || session.manualValidateResult == .checking)
+
+                TVContrastButton("Validate & Connect") {
+                    validateManual(connectAfter: true)
+                }
+                .disabled(!canConnectManual || session.manualValidateResult == .checking)
             } header: {
                 Text("Manual connection")
             } footer: {
-                Text("IPv4 or IPv6 (brackets optional), e.g. 192.168.44.154 or fe80::1 — port 8080. Last successful host is remembered.")
+                Text("Validates `GET /api/v1/health` before saving. IPv4 or IPv6 (brackets optional), e.g. 192.168.44.154 or fe80::1 — default port 8080. Last manual and Bonjour hosts are remembered separately.")
             }
         }
         .scrollableNavigationTitle()
@@ -112,10 +147,46 @@ struct SettingsView: View {
             session.startDiscovery()
             if !didLoadDefaults {
                 didLoadDefaults = true
-                if let last = HostPreferences.lastSelection {
+                if let manual = HostPreferences.lastManual {
+                    manualHost = manual.host
+                    manualPort = String(manual.port)
+                } else if let last = HostPreferences.lastSelection {
                     manualHost = last.host
                     manualPort = String(last.port)
+                } else {
+                    manualHost = "192.168.44.154"
+                    manualPort = "8080"
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rememberedHostsSection: some View {
+        let bonjour = HostPreferences.lastBonjour
+        let manual = HostPreferences.lastManual
+        if bonjour != nil || manual != nil {
+            Section {
+                if let bonjour {
+                    TVContrastButton("Bonjour: \(bonjour.displayName ?? bonjour.host) — \(HostAddress.endpointLabel(host: bonjour.host, port: bonjour.port))") {
+                        session.connect(
+                            to: DiscoveredHost(
+                                id: "remembered-bonjour",
+                                name: bonjour.displayName ?? bonjour.host,
+                                host: bonjour.host,
+                                port: bonjour.port,
+                                txtName: bonjour.displayName
+                            )
+                        )
+                    }
+                }
+                if let manual {
+                    TVContrastButton("Manual: \(manual.endpointLabel)") {
+                        session.connect(manual: manual)
+                    }
+                }
+            } header: {
+                Text("Remembered")
             }
         }
     }
@@ -125,10 +196,12 @@ struct SettingsView: View {
             && Int(manualPort).map { (1...65535).contains($0) } == true
     }
 
-    private func connectManual() {
+    private func validateManual(connectAfter: Bool) {
         guard let port = Int(manualPort) else { return }
         let host = HostAddress.normalize(manualHost)
-        session.connect(manual: ManualHost(host: host, port: port))
+        Task {
+            await session.validateManualHost(ManualHost(host: host, port: port), connectAfter: connectAfter)
+        }
     }
 }
 

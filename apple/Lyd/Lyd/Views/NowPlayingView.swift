@@ -113,6 +113,9 @@ struct NowPlayingView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .scrollableNavigationTitle(hideBar: true)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HostOfflineBanner()
+        }
         .onAppear { volumeDraft = session.playback.volume }
     }
     #endif
@@ -146,6 +149,9 @@ struct NowPlayingView: View {
         }
         .background(LydTheme.nowPlayingBackground.ignoresSafeArea())
         .scrollableNavigationTitle()
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HostOfflineBanner()
+        }
         .onAppear { volumeDraft = session.playback.volume }
     }
 
@@ -232,7 +238,11 @@ struct NowPlayingView: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                if let status = session.statusMessage {
+                if !session.isHostReachable, let offline = session.offlineMessage {
+                    Text(offline)
+                        .font(.body)
+                        .foregroundStyle(.red)
+                } else if let status = session.statusMessage {
                     Text(status)
                         .font(.body)
                         .foregroundStyle(.red)
