@@ -55,7 +55,11 @@ struct AlbumDetailView: View {
             Section("Tracks") {
                 ForEach(tracks) { song in
                     SongRow(song: song) {
-                        Task { await session.play(songId: song.id) }
+                        // Detach from this view’s lifetime so tab → Now Playing doesn’t
+                        // cancel mid flight before queue/output/AVPlayer finish.
+                        Task { @MainActor in
+                            await session.play(songId: song.id, fromAlbumId: album.id)
+                        }
                     }
                 }
             }

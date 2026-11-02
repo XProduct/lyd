@@ -461,6 +461,12 @@ final class LydSession: ObservableObject {
     }
 
     func play(songId: String) async {
+        await play(songId: songId, fromAlbumId: nil)
+    }
+
+    /// Play a track. When `fromAlbumId` is set (album detail), shuffle off so the host
+    /// opens album queue context and Next stays in disc/track order from this song.
+    func play(songId: String, fromAlbumId: String?) async {
         selectedTab = .nowPlaying
         await ensurePlaybackOutputsReady()
         if isLocalAudioOutput {
@@ -468,12 +474,21 @@ final class LydSession: ObservableObject {
             ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
             await startLocalStream(songId: songId, atMs: 0, autoplay: true)
         }
-        await mutate { try await $0.play(songId: songId) }
-        // If host ack left us local but AVPlayer never started (race / failed first start), retry.
-        if isLocalAudioOutput, localPlayer.currentSongId != songId || (!localPlayer.isPlaying && playback.isPlaying) {
-            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
-        } else if isLocalAudioOutput, !localPlayer.isPlaying, localPlayer.currentSongId == songId {
-            localPlayer.resume()
+        await mutate { client in
+            if fromAlbumId != nil {
+                try? await client.shuffle(enabled: false)
+            }
+            try await client.play(songId: songId)
+        }
+        // Host ack / output sticky may have raced the first start — ensure AVPlayer matches.
+        let resolvedId = playback.currentSongId ?? songId
+        if isLocalAudioOutput {
+            if localPlayer.currentSongId != resolvedId || (!localPlayer.isPlaying && playback.isPlaying) {
+                ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
+                await startLocalStream(songId: resolvedId, atMs: 0, autoplay: true)
+            } else if !localPlayer.isPlaying, localPlayer.currentSongId == resolvedId {
+                localPlayer.resume()
+            }
         }
     }
 
@@ -487,7 +502,9 @@ final class LydSession: ObservableObject {
         }
         if isLocalAudioOutput, let songId = playback.currentSongId {
             ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
-            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+            if localPlayer.currentSongId != songId || !localPlayer.isPlaying {
+                await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+            }
         }
     }
 
