@@ -13,6 +13,17 @@ struct NowPlayingView: View {
     }
 
     var body: some View {
+        #if os(tvOS)
+        tvOSBody
+        #else
+        iOSBody
+        #endif
+    }
+
+    // MARK: - iPad / iPhone (unchanged stacked layout)
+
+    #if os(iOS)
+    private var iOSBody: some View {
         ScrollView {
             VStack(spacing: 24) {
                 CoverImage(url: coverURL)
@@ -21,40 +32,9 @@ struct NowPlayingView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .padding(.top, 4)
 
-                VStack(spacing: 6) {
-                    Text(song?.displayTitle ?? "Nothing playing")
-                        .font(.title2.bold())
-                        .foregroundStyle(Color.primary)
-                        .multilineTextAlignment(.center)
-                    Text(song?.displayArtist ?? session.selectedDisplayName)
-                        .font(.title3)
-                        .foregroundStyle(Color.secondary)
-                        .multilineTextAlignment(.center)
-                    if let album = song?.album?.nilIfEmpty {
-                        Text(album)
-                            .font(.subheadline)
-                            .foregroundStyle(Color.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    if let tech = song?.technicalSummary {
-                        Text(tech)
-                            .font(.footnote.monospacedDigit())
-                            .foregroundStyle(Color.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.top, 2)
-                    }
-                }
+                metadataBlock(centered: true)
 
                 VStack(spacing: 8) {
-                    #if os(tvOS)
-                    HStack {
-                        Text(format(ms: Int64(position)))
-                        Spacer()
-                        Text(format(ms: Int64(duration)))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    #else
                     Slider(
                         value: Binding(
                             get: { position },
@@ -78,68 +58,22 @@ struct NowPlayingView: View {
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    #endif
                 }
                 .padding(.horizontal)
 
-                HStack(spacing: 28) {
-                    Button {
-                        Task { await session.previous() }
-                    } label: {
-                        Image(systemName: "backward.fill")
-                            .font(.title)
-                            .foregroundStyle(Color.primary)
-                    }
+                transportRow
 
-                    Button {
-                        Task { await session.playPause() }
-                    } label: {
-                        Image(systemName: session.playback.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 64))
-                            .foregroundStyle(LydTheme.primary)
-                    }
-
-                    Button {
-                        Task { await session.next() }
-                    } label: {
-                        Image(systemName: "forward.fill")
-                            .font(.title)
-                            .foregroundStyle(Color.primary)
-                    }
-                }
-                .buttonStyle(.plain)
-
-                HStack(spacing: 20) {
-                    Button {
-                        Task { await session.toggleShuffle() }
-                    } label: {
-                        Label(
-                            session.playback.shuffle ? "Shuffle On" : "Shuffle Off",
-                            systemImage: "shuffle"
-                        )
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(session.playback.shuffle ? LydTheme.primary : Color.secondary)
-                    }
-
-                    #if os(tvOS)
-                    HStack {
-                        Button {
-                            Task { await session.setVolume(max(0, session.playback.volume - 0.05)) }
-                        } label: {
-                            Image(systemName: "speaker.wave.1.fill")
-                        }
-                        Text("\(Int((session.playback.volume * 100).rounded()))%")
-                            .monospacedDigit()
-                        Button {
-                            Task { await session.setVolume(min(1, session.playback.volume + 0.05)) }
-                        } label: {
-                            Image(systemName: "speaker.wave.3.fill")
-                        }
-                    }
-                    #endif
+                Button {
+                    Task { await session.toggleShuffle() }
+                } label: {
+                    Label(
+                        session.playback.shuffle ? "Shuffle On" : "Shuffle Off",
+                        systemImage: "shuffle"
+                    )
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(session.playback.shuffle ? LydTheme.primary : Color.secondary)
                 }
 
-                #if os(iOS)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Volume")
                         .font(.footnote)
@@ -167,32 +101,195 @@ struct NowPlayingView: View {
                         volumeDraft = newValue
                     }
                 }
-                #endif
 
-                if let status = session.statusMessage {
-                    Text(status)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal)
-                }
-
-                Text("Controlling \(session.selectedDisplayName) · \(session.selectedEndpoint)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                statusFooter
             }
             .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
             .padding()
-            // Clear the tab bar so shuffle / volume stay reachable.
             .padding(.bottom, 48)
         }
         .scrollBounceBehavior(.basedOnSize)
         .navigationTitle("Now Playing")
-        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
-        #endif
         .onAppear { volumeDraft = session.playback.volume }
+    }
+    #endif
+
+    // MARK: - tvOS landscape: art left, controls right
+
+    #if os(tvOS)
+    private var tvOSBody: some View {
+        HStack(alignment: .center, spacing: 48) {
+            CoverImage(url: coverURL)
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: 520)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .shadow(color: .black.opacity(0.45), radius: 24, y: 14)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 22) {
+                metadataBlock(centered: false)
+
+                progressBlock
+
+                transportRow
+                    .frame(maxWidth: .infinity)
+
+                HStack(spacing: 24) {
+                    TVNowPlayingButton(
+                        title: session.playback.shuffle ? "Shuffle On" : "Shuffle Off",
+                        systemImage: "shuffle",
+                        emphasized: session.playback.shuffle
+                    ) {
+                        Task { await session.toggleShuffle() }
+                    }
+
+                    TVNowPlayingButton(title: "−10s", systemImage: "gobackward.10") {
+                        Task { await session.seek(positionMs: max(0, Int64(position) - 10_000)) }
+                    }
+
+                    TVNowPlayingButton(title: "+10s", systemImage: "goforward.10") {
+                        Task { await session.seek(positionMs: min(Int64(duration), Int64(position) + 10_000)) }
+                    }
+                }
+
+                HStack(spacing: 20) {
+                    Text("Volume")
+                        .font(.title3)
+                        .foregroundStyle(Color.secondary)
+                    TVNowPlayingButton(title: "Down", systemImage: "speaker.wave.1.fill") {
+                        Task { await session.setVolume(max(0, session.playback.volume - 0.05)) }
+                    }
+                    Text("\(Int((session.playback.volume * 100).rounded()))%")
+                        .font(.title3.monospacedDigit())
+                        .foregroundStyle(Color.primary)
+                        .frame(minWidth: 72, alignment: .center)
+                    TVNowPlayingButton(title: "Up", systemImage: "speaker.wave.3.fill") {
+                        Task { await session.setVolume(min(1, session.playback.volume + 0.05)) }
+                    }
+                }
+
+                statusFooter
+                    .padding(.top, 8)
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+        .padding(48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Now Playing")
+        .onAppear { volumeDraft = session.playback.volume }
+    }
+
+    private var progressBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProgressView(value: duration > 0 ? position / duration : 0)
+                .tint(LydTheme.primary)
+                .scaleEffect(x: 1, y: 2, anchor: .center)
+
+            HStack {
+                Text(format(ms: Int64(position)))
+                Spacer()
+                Text(format(ms: Int64(duration)))
+            }
+            .font(.title3.monospacedDigit())
+            .foregroundStyle(Color.secondary)
+        }
+    }
+    #endif
+
+    // MARK: - Shared pieces
+
+    private func metadataBlock(centered: Bool) -> some View {
+        let textAlignment: TextAlignment = centered ? .center : .leading
+        #if os(tvOS)
+        let titleFont: Font = .largeTitle.bold()
+        let artistFont: Font = .title2
+        let albumFont: Font = .title3
+        let techFont: Font = .body.monospacedDigit()
+        let spacing: CGFloat = 8
+        #else
+        let titleFont: Font = .title2.bold()
+        let artistFont: Font = .title3
+        let albumFont: Font = .subheadline
+        let techFont: Font = .footnote.monospacedDigit()
+        let spacing: CGFloat = 6
+        #endif
+        return VStack(alignment: centered ? .center : .leading, spacing: spacing) {
+            Text(song?.displayTitle ?? "Nothing playing")
+                .font(titleFont)
+                .foregroundStyle(Color.primary)
+                .multilineTextAlignment(textAlignment)
+                .lineLimit(3)
+
+            Text(song?.displayArtist ?? session.selectedDisplayName)
+                .font(artistFont)
+                .foregroundStyle(Color.secondary)
+                .multilineTextAlignment(textAlignment)
+
+            if let album = song?.album?.nilIfEmpty {
+                Text(album)
+                    .font(albumFont)
+                    .foregroundStyle(Color.secondary)
+                    .multilineTextAlignment(textAlignment)
+            }
+
+            if let tech = song?.technicalSummary {
+                Text(tech)
+                    .font(techFont)
+                    .foregroundStyle(Color.secondary)
+                    .multilineTextAlignment(textAlignment)
+                    .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
+    }
+
+    private var transportRow: some View {
+        HStack(spacing: 36) {
+            Button {
+                Task { await session.previous() }
+            } label: {
+                Image(systemName: "backward.fill")
+                    .font(.largeTitle)
+                    .foregroundStyle(Color.primary)
+                    .frame(width: 72, height: 72)
+            }
+
+            Button {
+                Task { await session.playPause() }
+            } label: {
+                Image(systemName: session.playback.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 84))
+                    .foregroundStyle(LydTheme.primary)
+            }
+
+            Button {
+                Task { await session.next() }
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.largeTitle)
+                    .foregroundStyle(Color.primary)
+                    .frame(width: 72, height: 72)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var statusFooter: some View {
+        if let status = session.statusMessage {
+            Text(status)
+                .font(.footnote)
+                .foregroundStyle(.red)
+        }
+
+        Text("Controlling \(session.selectedDisplayName) · \(session.selectedEndpoint)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     private var coverURL: URL? {
@@ -211,9 +308,32 @@ struct NowPlayingView: View {
     }
 }
 
+#if os(tvOS)
+/// Focus-safe labeled control for the tvOS Now Playing sidebar.
+private struct TVNowPlayingButton: View {
+    let title: String
+    let systemImage: String
+    var emphasized: Bool = false
+    let action: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.title3.weight(.semibold))
+                .labelStyle(.titleAndIcon)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .foregroundStyle(isFocused ? Color.black : (emphasized ? LydTheme.primary : Color.primary))
+        }
+        .buttonStyle(.card)
+        .focused($isFocused)
+    }
+}
+#endif
+
 private extension LydSession {
     func clientCoverFallback(albumId: String) -> URL? {
-        // Relative cover path used by Phase A when album list is incomplete.
         coverURL(for: AlbumDto(id: albumId, title: nil, artist: nil, songIds: nil, coverUrl: "/api/v1/albums/\(albumId)/cover"))
     }
 }
@@ -224,4 +344,3 @@ private extension String {
         return trimmed.isEmpty ? nil : trimmed
     }
 }
-
