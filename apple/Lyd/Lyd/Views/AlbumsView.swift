@@ -5,8 +5,8 @@ struct AlbumsView: View {
 
     private var columns: [GridItem] {
         #if os(tvOS)
-        // ~6 albums per row on typical Apple TV widths; generous gutters.
-        Array(repeating: GridItem(.flexible(), spacing: 32, alignment: .top), count: 6)
+        // ~6 albums per row; leave room for CardButtonStyle focus scale.
+        Array(repeating: GridItem(.flexible(), spacing: 40, alignment: .top), count: 6)
         #else
         [GridItem(.adaptive(minimum: 140), spacing: 16, alignment: .top)]
         #endif
@@ -14,7 +14,7 @@ struct AlbumsView: View {
 
     private var gridSpacing: CGFloat {
         #if os(tvOS)
-        32
+        36
         #else
         16
         #endif
@@ -24,7 +24,14 @@ struct AlbumsView: View {
         ScrollView {
             LazyVGrid(columns: columns, alignment: .leading, spacing: gridSpacing) {
                 ForEach(session.library.albums) { album in
-                    AlbumNavigationCell(album: album, coverURL: session.coverURL(for: album))
+                    #if os(tvOS)
+                    TVAlbumPosterCell(album: album, coverURL: session.coverURL(for: album))
+                    #else
+                    NavigationLink(value: album) {
+                        AlbumCell(album: album, coverURL: session.coverURL(for: album))
+                    }
+                    .buttonStyle(.plain)
+                    #endif
                 }
             }
             .padding(gridPadding)
@@ -57,45 +64,61 @@ struct AlbumsView: View {
 
     private var gridPadding: CGFloat {
         #if os(tvOS)
-        40
+        48
         #else
         16
         #endif
     }
 }
 
-/// Navigation wrapper so tvOS can apply a home-screen-style focus lift without purple label tint.
-private struct AlbumNavigationCell: View {
+#if os(tvOS)
+/// tvOS album tile: NavigationLink + `.buttonStyle(.card)` so Siri Remote focus
+/// gets Apple’s native lift/parallax (home-screen-style). Labels sit outside the card.
+private struct TVAlbumPosterCell: View {
     let album: AlbumDto
     let coverURL: URL?
-    #if os(tvOS)
-    @FocusState private var isFocused: Bool
-    #endif
+
+    private let titleLineHeight: CGFloat = 28
+    private let artistLineHeight: CGFloat = 24
 
     var body: some View {
-        NavigationLink(value: album) {
-            #if os(tvOS)
-            AlbumCell(album: album, coverURL: coverURL, isFocused: isFocused)
-            #else
-            AlbumCell(album: album, coverURL: coverURL, isFocused: false)
-            #endif
+        VStack(alignment: .leading, spacing: 14) {
+            NavigationLink(value: album) {
+                CoverImage(url: coverURL)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .frame(maxWidth: .infinity)
+            }
+            // Critical: `.card` (not `.plain`) — plain suppressed focus motion before.
+            .buttonStyle(.card)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.displayTitle)
+                    .font(.headline)
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(album.displayArtist)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.secondary)
+                    .lineLimit(1)
+            }
+            .frame(
+                maxWidth: .infinity,
+                minHeight: titleLineHeight * 2 + 2 + artistLineHeight,
+                alignment: .topLeading
+            )
         }
-        .buttonStyle(.plain)
-        #if os(tvOS)
-        .focused($isFocused)
-        .scaleEffect(isFocused ? 1.06 : 1.0, anchor: .center)
-        .offset(y: isFocused ? -8 : 0)
-        .shadow(color: .black.opacity(isFocused ? 0.45 : 0), radius: isFocused ? 18 : 0, y: isFocused ? 12 : 0)
-        .zIndex(isFocused ? 1 : 0)
-        .animation(.easeOut(duration: 0.18), value: isFocused)
-        #endif
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
+#endif
 
 struct AlbumCell: View {
     let album: AlbumDto
     let coverURL: URL?
-    var isFocused: Bool = false
 
     private var titleLineHeight: CGFloat {
         #if os(tvOS)
@@ -118,13 +141,7 @@ struct AlbumCell: View {
             CoverImage(url: coverURL)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                #if os(tvOS)
-                .scaleEffect(isFocused ? 1.03 : 1.0)
-                .shadow(color: .black.opacity(isFocused ? 0.35 : 0.12), radius: isFocused ? 14 : 4, y: isFocused ? 10 : 2)
-                #endif
 
-            // Pack title + artist tightly; reserve caption height so covers stay
-            // top-aligned across the row without a gap between a 1-line title and artist.
             VStack(alignment: .leading, spacing: 2) {
                 Text(album.displayTitle)
                     .font(.headline)
