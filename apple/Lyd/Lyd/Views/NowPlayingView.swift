@@ -234,9 +234,6 @@ struct NowPlayingView: View {
         .simultaneousGesture(
             TapGesture().onEnded { bumpIdleTimer() }
         )
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 8).onChanged { _ in bumpIdleTimer() }
-        )
     }
 
     private var ambientWash: some View {
