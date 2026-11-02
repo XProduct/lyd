@@ -25,16 +25,35 @@ namespace FlacPlayer.ViewModel
         private readonly IPlayer Player;
         private readonly IWebSocketService WebSocketService;
         private int _libraryRevision;
-        /// <summary>Phase E: true when an Apple (or other) client is the audio renderer.</summary>
-        private bool _remoteAudioOutput;
-        private string _remoteAudioOutputDeviceId;
-        /// <summary>Authoritative play/pause while audio renders on a remote player (irrKlang stays paused).</summary>
+        /// <summary>Phase E: multi-select Playing on. DeviceId "host" = Windows irrKlang.</summary>
+        public const string HostOutputDeviceId = "host";
+        private readonly List<PlaybackOutputTargetDto> _outputTargets = new List<PlaybackOutputTargetDto>
+        {
+            new PlaybackOutputTargetDto { DeviceId = HostOutputDeviceId, DeviceName = "Host" }
+        };
+        /// <summary>Authoritative play/pause while host is not in the output set (irrKlang stays paused).</summary>
         private bool _sessionDesiredPlaying;
         private long _sessionPositionMs;
         private long _sessionSeekGeneration;
         private long _sessionRemoteDurationMs;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, PlayerDto> _registeredPlayers =
             new System.Collections.Concurrent.ConcurrentDictionary<string, PlayerDto>();
+
+        private bool HostIsOutput
+        {
+            get { return _outputTargets.Any(t => IsHostOutputId(t.DeviceId)); }
+        }
+
+        /// <summary>True when irrKlang must stay silent and session state is authoritative.</summary>
+        private bool RemoteOnlyAudio
+        {
+            get { return !HostIsOutput; }
+        }
+
+        private static bool IsHostOutputId(string deviceId)
+        {
+            return string.Equals(deviceId, HostOutputDeviceId, StringComparison.OrdinalIgnoreCase);
+        }
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
@@ -511,7 +530,7 @@ namespace FlacPlayer.ViewModel
         {
             get
             {
-                if (_remoteAudioOutput)
+                if (RemoteOnlyAudio)
                 {
                     return _sessionDesiredPlaying;
                 }
@@ -1398,7 +1417,7 @@ namespace FlacPlayer.ViewModel
             UpdateCurrentSong(song);
             AddSongsToQueue();
             // Phase E: session updates on host, but audio may render on an Apple client.
-            if (_remoteAudioOutput)
+            if (RemoteOnlyAudio)
             {
                 _sessionDesiredPlaying = true;
                 _sessionPositionMs = 0;
@@ -1417,7 +1436,7 @@ namespace FlacPlayer.ViewModel
                 Player.Play(CurrentPlayQueue[CurrentSongIndex].Path);
                 UpdateCurrentSong(CurrentPlayQueue[CurrentSongIndex]);
                 GetSongDuration();
-                if (_remoteAudioOutput)
+                if (RemoteOnlyAudio)
                 {
                     _sessionPositionMs = 0;
                     _sessionSeekGeneration++;
@@ -1431,7 +1450,7 @@ namespace FlacPlayer.ViewModel
                 CurrentPositionText = "0:00";
                 CurrentTrackDuration = 0;
                 PercentageComplete = 0;
-                if (_remoteAudioOutput)
+                if (RemoteOnlyAudio)
                 {
                     _sessionDesiredPlaying = false;
                     _sessionPositionMs = 0;
@@ -1449,7 +1468,7 @@ namespace FlacPlayer.ViewModel
 
         private void TogglePlayPause()
         {
-            if (_remoteAudioOutput)
+            if (RemoteOnlyAudio)
             {
                 _sessionDesiredPlaying = !_sessionDesiredPlaying;
                 Pause();
@@ -1668,7 +1687,7 @@ namespace FlacPlayer.ViewModel
         {
             // Phase E: when Apple renders audio, host UI follows session position from heartbeats —
             // never advance the queue from a paused irrKlang "finished" state.
-            if (_remoteAudioOutput)
+            if (RemoteOnlyAudio)
             {
                 int currentSeconds = (int)(_sessionPositionMs / 1000);
                 if (currentSeconds < 0) currentSeconds = 0;
@@ -1734,7 +1753,7 @@ namespace FlacPlayer.ViewModel
                 Player.Play(CurrentPlayQueue[CurrentSongIndex].Path);
                 UpdateCurrentSong(CurrentPlayQueue[CurrentSongIndex]);
                 GetSongDuration();
-                if (_remoteAudioOutput)
+                if (RemoteOnlyAudio)
                 {
                     _sessionPositionMs = 0;
                     _sessionSeekGeneration++;
@@ -1784,7 +1803,7 @@ namespace FlacPlayer.ViewModel
             long position;
             long duration = 0;
             bool playing;
-            if (_remoteAudioOutput)
+            if (RemoteOnlyAudio)
             {
                 position = _sessionPositionMs;
                 if (position < 0) position = 0;
@@ -1806,6 +1825,17 @@ namespace FlacPlayer.ViewModel
                 try { duration = Player.GetCurrentSongDuration(); } catch { }
             }
 
+            var targetsCopy = _outputTargets
+                .Select(t => new PlaybackOutputTargetDto { DeviceId = t.DeviceId, DeviceName = t.DeviceName })
+                .ToList();
+            bool hasRemote = targetsCopy.Any(t => !IsHostOutputId(t.DeviceId));
+            bool hasHost = targetsCopy.Any(t => IsHostOutputId(t.DeviceId));
+            string legacyTarget = hasHost && hasRemote ? "multi" : (hasHost ? "host" : "remote");
+            string legacyRemoteId = targetsCopy
+                .Where(t => !IsHostOutputId(t.DeviceId))
+                .Select(t => t.DeviceId)
+                .FirstOrDefault();
+
             return new PlaybackStateDto
             {
                 IsPlaying = playing,
@@ -1815,8 +1845,9 @@ namespace FlacPlayer.ViewModel
                 CurrentSongId = CurrentPlayingSong != null ? CurrentPlayingSong.ID : null,
                 CurrentSong = CurrentPlayingSong != null && !string.IsNullOrEmpty(CurrentPlayingSong.Path) ? MapSongDto(CurrentPlayingSong) : null,
                 Volume = Player.GetVolume(),
-                OutputTarget = _remoteAudioOutput ? "remote" : "host",
-                OutputDeviceId = _remoteAudioOutputDeviceId,
+                OutputTarget = legacyTarget,
+                OutputDeviceId = legacyRemoteId,
+                OutputTargets = targetsCopy,
                 SeekGeneration = _sessionSeekGeneration
             };
         }
@@ -1827,31 +1858,63 @@ namespace FlacPlayer.ViewModel
             PlayOnDemand(song);
         }
 
-        /// <summary>Phase E: when Apple (or another remote) renders audio, silence irrKlang but keep session/queue.</summary>
+        /// <summary>Legacy single-target API — maps onto multi-select Playing on.</summary>
         public void RemoteSetAudioOutput(string target, string deviceId, string deviceName)
         {
             bool remote = string.Equals(target, "remote", StringComparison.OrdinalIgnoreCase);
+            var targets = new List<PlaybackOutputTargetDto>();
             if (remote)
+            {
+                if (!string.IsNullOrEmpty(deviceId))
+                {
+                    targets.Add(new PlaybackOutputTargetDto
+                    {
+                        DeviceId = deviceId,
+                        DeviceName = string.IsNullOrWhiteSpace(deviceName) ? deviceId : deviceName
+                    });
+                }
+            }
+            else
+            {
+                targets.Add(new PlaybackOutputTargetDto
+                {
+                    DeviceId = HostOutputDeviceId,
+                    DeviceName = RemoteDisplayName ?? "Host"
+                });
+            }
+            RemoteSetAudioOutputs(targets);
+        }
+
+        /// <summary>Phase E: multi-select where audio renders (host and/or registered players).</summary>
+        public void RemoteSetAudioOutputs(IList<PlaybackOutputTargetDto> targets)
+        {
+            var next = NormalizeOutputTargets(targets);
+            bool wasHost = HostIsOutput;
+            bool willHost = next.Any(t => IsHostOutputId(t.DeviceId));
+
+            if (wasHost && !willHost)
             {
                 long pos = Player.GetCurrentSongPlayTime();
                 if (pos < 0) pos = 0;
                 _sessionPositionMs = pos;
                 _sessionDesiredPlaying = Player.IsPlaying();
-                _remoteAudioOutput = true;
-                _remoteAudioOutputDeviceId = deviceId;
+            }
+
+            _outputTargets.Clear();
+            _outputTargets.AddRange(next);
+
+            if (!willHost)
+            {
                 Pause();
             }
-            else
+            else if (!wasHost)
             {
-                bool resume = _sessionDesiredPlaying;
                 long handoff = _sessionPositionMs;
-                _remoteAudioOutput = false;
-                _remoteAudioOutputDeviceId = null;
                 if (handoff > 0)
                 {
-                    Player.SetPlayPosition((int)(handoff / 1000));
+                    try { Player.SetPlayPosition((int)(handoff / 1000)); } catch { }
                 }
-                if (resume)
+                if (_sessionDesiredPlaying)
                 {
                     Play();
                 }
@@ -1860,18 +1923,65 @@ namespace FlacPlayer.ViewModel
                     Pause();
                 }
             }
+
             RaisePropertyChanged(nameof(IsPlaying));
+        }
+
+        private List<PlaybackOutputTargetDto> NormalizeOutputTargets(IList<PlaybackOutputTargetDto> targets)
+        {
+            var result = new List<PlaybackOutputTargetDto>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (targets != null)
+            {
+                foreach (var t in targets)
+                {
+                    if (t == null || string.IsNullOrWhiteSpace(t.DeviceId))
+                    {
+                        continue;
+                    }
+                    string id = t.DeviceId.Trim();
+                    if (!seen.Add(id))
+                    {
+                        continue;
+                    }
+                    string name = string.IsNullOrWhiteSpace(t.DeviceName) ? id : t.DeviceName.Trim();
+                    if (IsHostOutputId(id))
+                    {
+                        id = HostOutputDeviceId;
+                        if (string.IsNullOrWhiteSpace(t.DeviceName) || string.Equals(name, id, StringComparison.OrdinalIgnoreCase))
+                        {
+                            name = RemoteDisplayName ?? "Host";
+                        }
+                    }
+                    result.Add(new PlaybackOutputTargetDto { DeviceId = id, DeviceName = name });
+                }
+            }
+            if (result.Count == 0)
+            {
+                result.Add(new PlaybackOutputTargetDto
+                {
+                    DeviceId = HostOutputDeviceId,
+                    DeviceName = RemoteDisplayName ?? "Host"
+                });
+            }
+            return result;
+        }
+
+        private bool IsRemoteOutputDevice(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId) || IsHostOutputId(deviceId))
+            {
+                return false;
+            }
+            return _outputTargets.Any(t => string.Equals(t.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase));
         }
 
         public void RemoteApplyPlaybackHeartbeat(string deviceId, long positionMs, long? durationMs, string songId)
         {
-            if (!_remoteAudioOutput)
+            // When host is also an output, irrKlang owns the playhead.
+            if (HostIsOutput || !IsRemoteOutputDevice(deviceId))
             {
-                return;
-            }
-            if (string.IsNullOrEmpty(deviceId) ||
-                !string.Equals(deviceId, _remoteAudioOutputDeviceId, StringComparison.OrdinalIgnoreCase))
-            {
+                TouchRegisteredPlayer(deviceId);
                 return;
             }
             if (positionMs < 0) positionMs = 0;
@@ -1895,7 +2005,8 @@ namespace FlacPlayer.ViewModel
                 Name = string.IsNullOrWhiteSpace(name) ? deviceId : name,
                 Platform = platform ?? "",
                 Capabilities = capabilities ?? new string[0],
-                LastSeenUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                LastSeenUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                IsOutput = IsRemoteOutputDevice(deviceId)
             };
             _registeredPlayers[deviceId] = dto;
         }
@@ -1908,11 +2019,12 @@ namespace FlacPlayer.ViewModel
             }
             PlayerDto removed;
             _registeredPlayers.TryRemove(deviceId, out removed);
-            if (_remoteAudioOutput &&
-                string.Equals(deviceId, _remoteAudioOutputDeviceId, StringComparison.OrdinalIgnoreCase))
+            if (IsRemoteOutputDevice(deviceId))
             {
-                // Output device left — fall back to host audio at last known position.
-                RemoteSetAudioOutput("host", null, null);
+                var remaining = _outputTargets
+                    .Where(t => !string.Equals(t.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                RemoteSetAudioOutputs(remaining);
             }
         }
 
@@ -1924,6 +2036,7 @@ namespace FlacPlayer.ViewModel
             {
                 if (pair.Value.LastSeenUnixMs >= cutoff)
                 {
+                    pair.Value.IsOutput = IsRemoteOutputDevice(pair.Value.DeviceId);
                     list.Add(pair.Value);
                 }
             }
@@ -1936,6 +2049,7 @@ namespace FlacPlayer.ViewModel
             if (_registeredPlayers.TryGetValue(deviceId, out existing) && existing != null)
             {
                 existing.LastSeenUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                existing.IsOutput = IsRemoteOutputDevice(deviceId);
             }
         }
 
@@ -1995,7 +2109,7 @@ namespace FlacPlayer.ViewModel
 
         public void RemotePause()
         {
-            if (_remoteAudioOutput)
+            if (RemoteOnlyAudio)
             {
                 _sessionDesiredPlaying = false;
             }
@@ -2023,7 +2137,7 @@ namespace FlacPlayer.ViewModel
         public void RemoteSeek(long positionMs)
         {
             if (positionMs < 0) positionMs = 0;
-            if (_remoteAudioOutput)
+            if (RemoteOnlyAudio)
             {
                 _sessionPositionMs = positionMs;
                 _sessionSeekGeneration++;
