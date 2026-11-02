@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(tvOS)
+import UIKit
+#endif
 
 struct NowPlayingView: View {
     @EnvironmentObject private var session: LydSession
@@ -201,6 +204,10 @@ struct NowPlayingView: View {
             volumeDraft = session.playback.volume
             bumpIdleTimer()
             transportFocus = .playPause
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
+        .onDisappear {
+            UIApplication.shared.isIdleTimerDisabled = false
         }
         .defaultFocus($transportFocus, .playPause)
         // Track / play-state changes must NOT exit cinema — art/metadata update in place.
