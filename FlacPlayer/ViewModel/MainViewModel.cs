@@ -2027,6 +2027,15 @@ namespace FlacPlayer.ViewModel
                 DeviceName = o.Name
             }).ToArray();
 
+            // Phase F1: while playing, glue the shared timeline to the real session playhead
+            // (irrKlang PlayPosition when host is an output). Anchoring only at Play() lets
+            // wall-clock run ahead of FLAC startup latency, so Apple derived position leads
+            // host audio by ~seconds. Paused state keeps the freeze from Pause().
+            if (playing)
+            {
+                SetTimelineAnchor(position);
+            }
+
             return new PlaybackStateDto
             {
                 IsPlaying = playing,

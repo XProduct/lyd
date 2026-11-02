@@ -60,7 +60,9 @@ namespace FlacPlayer.Model
 
         public long GetCurrentSongPlayTime()
         {
-            if (currentSound != null && playerStopWatch.ElapsedMilliseconds > 0)
+            // irrKlang PlayPosition is milliseconds. Do not gate on the stopwatch —
+            // that returned -1 at the start of play and made the F1 timeline lie.
+            if (currentSound != null)
             {
                 return currentSound.PlayPosition;
             }
