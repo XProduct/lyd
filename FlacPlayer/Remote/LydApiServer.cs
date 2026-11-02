@@ -218,8 +218,23 @@ namespace FlacPlayer.Remote
                     return;
                 }
 
-                if (method == "GET" && path == "/api/v1/playback/state")
+                if (method == "GET" && (path == "/api/v1/playback/state" || path == "/api/v1/playback/session"))
                 {
+                    WriteJson(context, 200, _control.GetPlaybackState());
+                    return;
+                }
+
+                if (method == "GET" && path.StartsWith("/api/v1/stream/songs/", StringComparison.OrdinalIgnoreCase))
+                {
+                    string songId = Uri.UnescapeDataString(path.Substring("/api/v1/stream/songs/".Length));
+                    HandleSongStream(context, songId);
+                    return;
+                }
+
+                if (method == "POST" && path == "/api/v1/playback/output")
+                {
+                    var body = ReadJson<OutputRequest>(context) ?? new OutputRequest();
+                    InvokeOnUi(() => _control.SetOutput(body.DeviceId, body.DeviceName));
                     WriteJson(context, 200, _control.GetPlaybackState());
                     return;
                 }
@@ -334,6 +349,118 @@ namespace FlacPlayer.Remote
                 catch
                 {
                 }
+            }
+        }
+
+        private void HandleSongStream(HttpListenerContext context, string songId)
+        {
+            string filePath;
+            if (string.IsNullOrEmpty(songId) || !_control.TryGetSongPath(songId, out filePath) || !File.Exists(filePath))
+            {
+                WriteJson(context, 404, new { error = "song_not_found" });
+                return;
+            }
+
+            string contentType = ContentTypeForAudioPath(filePath);
+            long fileLength = new FileInfo(filePath).Length;
+            long start = 0;
+            long end = fileLength - 1;
+            bool isPartial = false;
+
+            string rangeHeader = context.Request.Headers["Range"];
+            if (!string.IsNullOrEmpty(rangeHeader) && rangeHeader.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase))
+            {
+                string spec = rangeHeader.Substring("bytes=".Length).Trim();
+                int dash = spec.IndexOf('-');
+                if (dash >= 0)
+                {
+                    string startText = spec.Substring(0, dash).Trim();
+                    string endText = spec.Substring(dash + 1).Trim();
+                    long parsedStart;
+                    long parsedEnd;
+                    if (startText.Length == 0 && long.TryParse(endText, out parsedEnd))
+                    {
+                        // suffix: bytes=-500
+                        start = Math.Max(0, fileLength - parsedEnd);
+                        end = fileLength - 1;
+                        isPartial = true;
+                    }
+                    else if (long.TryParse(startText, out parsedStart))
+                    {
+                        start = parsedStart;
+                        if (endText.Length > 0 && long.TryParse(endText, out parsedEnd))
+                        {
+                            end = parsedEnd;
+                        }
+                        isPartial = true;
+                    }
+                }
+            }
+
+            if (start < 0) start = 0;
+            if (end >= fileLength) end = fileLength - 1;
+            if (start > end || start >= fileLength)
+            {
+                context.Response.StatusCode = 416;
+                context.Response.Headers["Content-Range"] = "bytes */" + fileLength;
+                context.Response.ContentLength64 = 0;
+                context.Response.OutputStream.Close();
+                return;
+            }
+
+            long contentLength = end - start + 1;
+            context.Response.StatusCode = isPartial ? 206 : 200;
+            context.Response.ContentType = contentType;
+            context.Response.Headers["Accept-Ranges"] = "bytes";
+            if (isPartial)
+            {
+                context.Response.Headers["Content-Range"] = "bytes " + start + "-" + end + "/" + fileLength;
+            }
+            context.Response.ContentLength64 = contentLength;
+
+            const int bufferSize = 81920;
+            byte[] buffer = new byte[bufferSize];
+            using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                fs.Seek(start, SeekOrigin.Begin);
+                long remaining = contentLength;
+                while (remaining > 0)
+                {
+                    int toRead = remaining > bufferSize ? bufferSize : (int)remaining;
+                    int read = fs.Read(buffer, 0, toRead);
+                    if (read <= 0)
+                    {
+                        break;
+                    }
+                    context.Response.OutputStream.Write(buffer, 0, read);
+                    remaining -= read;
+                }
+            }
+            context.Response.OutputStream.Close();
+        }
+
+        private static string ContentTypeForAudioPath(string path)
+        {
+            string ext = Path.GetExtension(path);
+            if (string.IsNullOrEmpty(ext))
+            {
+                return "application/octet-stream";
+            }
+            switch (ext.ToLowerInvariant())
+            {
+                case ".flac": return "audio/flac";
+                case ".mp3": return "audio/mpeg";
+                case ".m4a":
+                case ".mp4":
+                case ".aac": return "audio/mp4";
+                case ".wav": return "audio/wav";
+                case ".ogg":
+                case ".oga": return "audio/ogg";
+                case ".wma": return "audio/x-ms-wma";
+                case ".aiff":
+                case ".aif": return "audio/aiff";
+                case ".alac": return "audio/alac";
+                default: return "application/octet-stream";
             }
         }
 

@@ -9,6 +9,7 @@ namespace FlacPlayer.Design
         public bool IsFinished() { return false; }
         public bool IsPlaying() { return true; }
         public void Pause() { }
+        public void Stop() { }
         public void Play(string filepath = null) { }
         public void SetPlayPosition(int seconds) { }
         public double GetVolume() { return 1.0; }

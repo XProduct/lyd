@@ -14,6 +14,7 @@ using System.Windows.Media.Imaging;
 using System.Threading;
 using System.Windows;
 using System.IO;
+using System.Diagnostics;
 
 namespace FlacPlayer.ViewModel
 {
@@ -25,6 +26,15 @@ namespace FlacPlayer.ViewModel
         private readonly IPlayer Player;
         private readonly IWebSocketService WebSocketService;
         private int _libraryRevision;
+
+        /// <summary>One shared session per host process (Phase E).</summary>
+        private readonly string _sessionId = Guid.NewGuid().ToString("N");
+        private string _outputDeviceId = "host";
+        private string _outputDeviceName;
+        private bool _remoteSessionPlaying;
+        private long _remotePositionMs;
+        private long _remoteDurationMs;
+        private readonly Stopwatch _remotePositionWatch = new Stopwatch();
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
@@ -60,6 +70,7 @@ namespace FlacPlayer.ViewModel
             StartSongPositionListener();
 
             // LAN remote API + mDNS
+            _outputDeviceName = RemoteDisplayName;
             RemotePort = WebSocketService.Port > 0 ? WebSocketService.Port : 8080;
             LydRemoteInstructions = "Lyd Remote is starting...";
             WebSocketService.SetControl(new MainRemoteControl(this));
@@ -501,7 +512,16 @@ namespace FlacPlayer.ViewModel
         {
             get
             {
-                return Player.IsPlaying();
+                return IsHostAudioOutput ? Player.IsPlaying() : _remoteSessionPlaying;
+            }
+        }
+
+        private bool IsHostAudioOutput
+        {
+            get
+            {
+                return string.IsNullOrEmpty(_outputDeviceId)
+                    || string.Equals(_outputDeviceId, "host", StringComparison.OrdinalIgnoreCase);
             }
         }
 
@@ -1358,17 +1378,20 @@ namespace FlacPlayer.ViewModel
 
         private void Play()
         {
-            Player.Play();
+            if (IsHostAudioOutput)
+            {
+                Player.Play();
+            }
+            else
+            {
+                _remoteSessionPlaying = true;
+                _remotePositionWatch.Start();
+            }
         }
 
         private void PlayOnDemand()
         {
-            Player.Play(SelectedSong.Path);
-            CurrentSongIndex = 0;
-            GetSongDuration();
-            UpdateCurrentSong(SelectedSong);
-            AddSongsToQueue();
-            RaisePropertyChanged(nameof(IsPlaying));
+            PlayOnDemand(SelectedSong);
         }
 
         private void PlayOnDemand(Song song)
@@ -1378,11 +1401,10 @@ namespace FlacPlayer.ViewModel
                 return;
             }
 
-            Player.Play(song.Path);
             CurrentSongIndex = 0;
-            GetSongDuration();
             UpdateCurrentSong(song);
             AddSongsToQueue();
+            StartPlaybackForCurrentOutput(song);
             RaisePropertyChanged(nameof(IsPlaying));
         }
 
@@ -1392,12 +1414,15 @@ namespace FlacPlayer.ViewModel
             CurrentSongIndex = CurrentSongIndex + 1;
             if (CurrentSongIndex < CurrentPlayQueue.Count)
             {
-                Player.Play(CurrentPlayQueue[CurrentSongIndex].Path);
-                UpdateCurrentSong(CurrentPlayQueue[CurrentSongIndex]);
-                GetSongDuration();
+                Song next = CurrentPlayQueue[CurrentSongIndex];
+                UpdateCurrentSong(next);
+                StartPlaybackForCurrentOutput(next);
             }
             else
             {
+                SilenceHostPlayer();
+                _remoteSessionPlaying = false;
+                _remotePositionWatch.Reset();
                 UpdateCurrentSong(new Song("", "", "", ""));
                 CurrentPositionText = "0:00";
                 CurrentTrackDuration = 0;
@@ -1409,12 +1434,21 @@ namespace FlacPlayer.ViewModel
 
         private void Pause()
         {
-            Player.Pause();
+            if (IsHostAudioOutput)
+            {
+                Player.Pause();
+            }
+            else
+            {
+                CaptureRemotePosition();
+                _remoteSessionPlaying = false;
+                _remotePositionWatch.Stop();
+            }
         }
 
         private void TogglePlayPause()
         {
-            if (Player.IsPlaying())
+            if (IsPlaying)
             {
                 Pause();
             }
@@ -1424,6 +1458,75 @@ namespace FlacPlayer.ViewModel
             }
 
             RaisePropertyChanged(nameof(IsPlaying));
+        }
+
+        /// <summary>
+        /// Host irrKlang when output is host; otherwise silence local audio and mark remote session playing.
+        /// </summary>
+        private void StartPlaybackForCurrentOutput(Song song)
+        {
+            if (IsHostAudioOutput)
+            {
+                Player.Play(song.Path);
+                GetSongDuration();
+                _remoteSessionPlaying = false;
+                _remotePositionWatch.Reset();
+                _remotePositionMs = 0;
+            }
+            else
+            {
+                SilenceHostPlayer();
+                _remoteSessionPlaying = true;
+                _remotePositionMs = 0;
+                _remotePositionWatch.Restart();
+                SetRemoteDurationFromSong(song);
+            }
+        }
+
+        private void SilenceHostPlayer()
+        {
+            try
+            {
+                Player.Stop();
+            }
+            catch
+            {
+                try { Player.Pause(); } catch { }
+            }
+        }
+
+        private void CaptureRemotePosition()
+        {
+            if (_remotePositionWatch.IsRunning)
+            {
+                _remotePositionMs += _remotePositionWatch.ElapsedMilliseconds;
+                _remotePositionWatch.Reset();
+            }
+        }
+
+        private void SetRemoteDurationFromSong(Song song)
+        {
+            _remoteDurationMs = 0;
+            if (song == null || string.IsNullOrEmpty(song.Path) || !File.Exists(song.Path))
+            {
+                return;
+            }
+            try
+            {
+                using (TagLib.File file = TagLib.File.Create(song.Path))
+                {
+                    if (file != null && file.Properties != null)
+                    {
+                        _remoteDurationMs = (long)Math.Round(file.Properties.Duration.TotalMilliseconds);
+                        CurrentTrackDuration = _remoteDurationMs / 1000;
+                        int currentSeconds = (int)CurrentTrackDuration;
+                        Duration = currentSeconds / 60 + ":" + (currentSeconds % 60 < 10 ? "0" + currentSeconds % 60 : (currentSeconds % 60).ToString());
+                    }
+                }
+            }
+            catch
+            {
+            }
         }
 
         private void UpdateCurrentSong(Song song)
@@ -1669,9 +1772,9 @@ namespace FlacPlayer.ViewModel
             if (CurrentSongIndex > 0 && CurrentPlayQueue != null && CurrentPlayQueue.Count > 0)
             {
                 CurrentSongIndex = CurrentSongIndex - 1;
-                Player.Play(CurrentPlayQueue[CurrentSongIndex].Path);
-                UpdateCurrentSong(CurrentPlayQueue[CurrentSongIndex]);
-                GetSongDuration();
+                Song prev = CurrentPlayQueue[CurrentSongIndex];
+                UpdateCurrentSong(prev);
+                StartPlaybackForCurrentOutput(prev);
             }
             RaisePropertyChanged(nameof(IsPlaying));
         }
@@ -1713,20 +1816,47 @@ namespace FlacPlayer.ViewModel
 
         public PlaybackStateDto BuildRemotePlaybackState()
         {
-            long position = Player.GetCurrentSongPlayTime();
-            if (position < 0) position = 0;
-            long duration = 0;
-            try { duration = Player.GetCurrentSongDuration(); } catch { }
+            long position;
+            long duration;
+            bool playing;
+
+            if (IsHostAudioOutput)
+            {
+                position = Player.GetCurrentSongPlayTime();
+                if (position < 0) position = 0;
+                duration = 0;
+                try { duration = Player.GetCurrentSongDuration(); } catch { }
+                playing = Player.IsPlaying();
+            }
+            else
+            {
+                position = _remotePositionMs;
+                if (_remoteSessionPlaying && _remotePositionWatch.IsRunning)
+                {
+                    position += _remotePositionWatch.ElapsedMilliseconds;
+                }
+                duration = _remoteDurationMs;
+                playing = _remoteSessionPlaying;
+            }
+
+            string songId = CurrentPlayingSong != null ? CurrentPlayingSong.ID : null;
+            string streamUrl = string.IsNullOrEmpty(songId) ? null : "/api/v1/stream/songs/" + songId;
 
             return new PlaybackStateDto
             {
-                IsPlaying = Player.IsPlaying(),
+                IsPlaying = playing,
                 Shuffle = IsShuffleMode,
                 PositionMs = position,
                 DurationMs = duration,
-                CurrentSongId = CurrentPlayingSong != null ? CurrentPlayingSong.ID : null,
+                CurrentSongId = songId,
                 CurrentSong = CurrentPlayingSong != null && !string.IsNullOrEmpty(CurrentPlayingSong.Path) ? MapSongDto(CurrentPlayingSong) : null,
-                Volume = Player.GetVolume()
+                Volume = Player.GetVolume(),
+                SessionId = _sessionId,
+                OutputDeviceId = IsHostAudioOutput ? "host" : _outputDeviceId,
+                OutputDeviceName = IsHostAudioOutput
+                    ? (string.IsNullOrEmpty(_outputDeviceName) ? RemoteDisplayName : _outputDeviceName)
+                    : _outputDeviceName,
+                StreamUrl = streamUrl
             };
         }
 
@@ -1792,12 +1922,99 @@ namespace FlacPlayer.ViewModel
         public void RemoteSeek(long positionMs)
         {
             if (positionMs < 0) positionMs = 0;
-            Player.SetPlayPosition((int)(positionMs / 1000));
+            if (IsHostAudioOutput)
+            {
+                Player.SetPlayPosition((int)(positionMs / 1000));
+            }
+            else
+            {
+                _remotePositionMs = positionMs;
+                if (_remoteSessionPlaying)
+                {
+                    _remotePositionWatch.Restart();
+                }
+                else
+                {
+                    _remotePositionWatch.Reset();
+                }
+            }
         }
 
         public void RemoteSetVolume(double level)
         {
+            // Independent volumes: still remember host irrKlang level for when output returns to host.
             Player.SetVolume(level);
+        }
+
+        /// <summary>
+        /// E1: set Playing-on target. Non-host output silences irrKlang; session remains authoritative.
+        /// </summary>
+        public void RemoteSetOutput(string deviceId, string deviceName)
+        {
+            string nextId = string.IsNullOrWhiteSpace(deviceId) ? "host" : deviceId.Trim();
+            bool nextIsHost = string.Equals(nextId, "host", StringComparison.OrdinalIgnoreCase);
+            bool wasHost = IsHostAudioOutput;
+
+            if (wasHost && !nextIsHost)
+            {
+                // Leaving host: capture position and silence local audio.
+                long pos = Player.GetCurrentSongPlayTime();
+                if (pos < 0) pos = 0;
+                bool playing = Player.IsPlaying();
+                long dur = 0;
+                try { dur = Player.GetCurrentSongDuration(); } catch { }
+                SilenceHostPlayer();
+                _remotePositionMs = pos;
+                _remoteDurationMs = dur > 0 ? dur : _remoteDurationMs;
+                _remoteSessionPlaying = playing;
+                if (playing) { _remotePositionWatch.Restart(); } else { _remotePositionWatch.Reset(); }
+            }
+            else if (!wasHost && nextIsHost)
+            {
+                // Returning to host: resume irrKlang at last known position when session is playing.
+                CaptureRemotePosition();
+                bool resume = _remoteSessionPlaying;
+                long pos = _remotePositionMs;
+                _remoteSessionPlaying = false;
+                _remotePositionWatch.Reset();
+                if (resume && CurrentPlayingSong != null && !string.IsNullOrEmpty(CurrentPlayingSong.Path))
+                {
+                    Player.Play(CurrentPlayingSong.Path);
+                    if (pos > 0)
+                    {
+                        Player.SetPlayPosition((int)(pos / 1000));
+                    }
+                    GetSongDuration();
+                }
+            }
+
+            _outputDeviceId = nextIsHost ? "host" : nextId;
+            if (!string.IsNullOrWhiteSpace(deviceName))
+            {
+                _outputDeviceName = deviceName.Trim();
+            }
+            else if (nextIsHost)
+            {
+                _outputDeviceName = RemoteDisplayName;
+            }
+
+            RaisePropertyChanged(nameof(IsPlaying));
+        }
+
+        public bool TryGetRemoteSongPath(string songId, out string path)
+        {
+            path = null;
+            if (string.IsNullOrEmpty(songId))
+            {
+                return false;
+            }
+            Song song = Songs.FirstOrDefault(s => s.ID == songId);
+            if (song == null || string.IsNullOrEmpty(song.Path) || !File.Exists(song.Path))
+            {
+                return false;
+            }
+            path = song.Path;
+            return true;
         }
 
         public bool TryGetRemoteAlbumCover(string albumId, out byte[] bytes, out string contentType)
