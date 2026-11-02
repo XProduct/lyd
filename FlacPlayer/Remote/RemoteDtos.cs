@@ -27,6 +27,12 @@ namespace FlacPlayer.Remote
         public int Track { get; set; }
         public int Disc { get; set; }
         public long? DurationMs { get; set; }
+        /// <summary>Audio bitrate in kbps (TagLib).</summary>
+        public double? Bitrate { get; set; }
+        /// <summary>Sample rate in kHz (desktop stores AudioSampleRate / 1000).</summary>
+        public double? SampleRate { get; set; }
+        /// <summary>Bits per sample.</summary>
+        public double? Depth { get; set; }
     }
 
     public sealed class AlbumDto
