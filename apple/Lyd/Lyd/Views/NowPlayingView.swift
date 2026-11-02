@@ -27,7 +27,6 @@ struct NowPlayingView: View {
         ScrollView {
             VStack(spacing: 24) {
                 ScrollablePageTitle(title: "Now Playing")
-                    .padding(.top, 4)
 
                 CoverImage(url: coverURL)
                     .frame(maxWidth: 360)
@@ -108,12 +107,12 @@ struct NowPlayingView: View {
             }
             .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
-            .padding()
+            .padding(.horizontal)
+            .padding(.top, 8)
             .padding(.bottom, 48)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .scrollableNavigationTitle()
-        .toolbarBackground(.visible, for: .navigationBar)
+        .scrollableNavigationTitle(hideBar: true)
         .onAppear { volumeDraft = session.playback.volume }
     }
     #endif
@@ -169,6 +168,8 @@ struct NowPlayingView: View {
                 VStack(alignment: .leading, spacing: 28) {
                     metadataBlock(centered: false)
 
+                    progressReadout
+
                     transportRow
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -176,6 +177,26 @@ struct NowPlayingView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
+    }
+
+    /// Elapsed / duration + progress — display only (not seekable).
+    private var progressReadout: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ProgressView(value: duration > 0 ? position / duration : 0)
+                .tint(LydTheme.primary)
+                .scaleEffect(x: 1, y: 2, anchor: .center)
+                .accessibilityLabel("Playback progress")
+                .accessibilityValue("\(format(ms: Int64(position))) of \(format(ms: Int64(duration)))")
+
+            HStack {
+                Text(format(ms: Int64(position)))
+                Spacer()
+                Text(format(ms: Int64(duration)))
+            }
+            .font(.title3.monospacedDigit())
+            .foregroundStyle(Color.secondary)
+        }
+        .allowsHitTesting(false)
     }
 
     /// Shuffle, volume, and host status — reached by scrolling down.

@@ -20,16 +20,21 @@ struct SongsView: View {
             ScrollablePageTitle(title: "Songs")
                 .scrollableListTitleRow()
 
+            #if os(iOS)
+            TextField("Title, artist, album", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+            #endif
+
             ForEach(filtered) { song in
                 SongRow(song: song) {
                     Task { await session.play(songId: song.id) }
                 }
             }
         }
-        .scrollableNavigationTitle()
+        .scrollableNavigationTitle(hideBar: true)
         #if os(iOS)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .searchable(text: $query, prompt: "Title, artist, album")
         .refreshable {
             await session.refreshLibrary(force: true)
         }

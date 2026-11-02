@@ -43,9 +43,8 @@ struct AlbumsView: View {
                 .padding(.bottom, gridPadding)
             }
         }
-        .scrollableNavigationTitle()
+        .scrollableNavigationTitle(hideBar: true)
         #if os(iOS)
-        .toolbarBackground(.visible, for: .navigationBar)
         .refreshable {
             await session.refreshLibrary(force: true)
         }
@@ -80,7 +79,7 @@ struct AlbumsView: View {
         #if os(tvOS)
         24
         #else
-        8
+        0
         #endif
     }
 }
