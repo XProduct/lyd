@@ -85,8 +85,8 @@ struct AlbumsView: View {
             HostOfflineBanner()
         }
         .overlay {
-            // Don't flash empty-state over a grid that's merely mid-identity update.
-            if session.library.albums.isEmpty {
+            // Sticky latch: once albums loaded, never cover the grid with hydrating empty UI.
+            if session.shouldShowAlbumsEmptyState {
                 LibraryEmptyState(libraryKind: .albums)
             }
         }

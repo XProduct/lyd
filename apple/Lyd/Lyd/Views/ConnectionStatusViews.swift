@@ -85,11 +85,21 @@ struct LibraryEmptyState: View {
                 )
             )
         case .connected:
+            // Only reached when the sticky latch says this tab never loaded content.
             ContentUnavailableView(
                 libraryKind == .albums ? "No albums yet" : "No songs yet",
                 systemImage: libraryKind.symbol,
-                description: Text("Revision \(max(session.library.revision, 0)). Pull to refresh when the host finishes scanning.")
+                description: Text(connectedEmptyDescription)
             )
         }
+    }
+
+    private var connectedEmptyDescription: String {
+        let revision = max(session.library.revision, 0)
+        #if os(tvOS)
+        return "Revision \(revision). Open Settings and refresh when the host finishes scanning."
+        #else
+        return "Revision \(revision). Pull to refresh when the host finishes scanning."
+        #endif
     }
 }

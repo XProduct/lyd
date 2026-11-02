@@ -62,7 +62,7 @@ struct SongsView: View {
             HostOfflineBanner()
         }
         .overlay {
-            if session.library.songs.isEmpty {
+            if session.shouldShowSongsEmptyState {
                 LibraryEmptyState(libraryKind: .songs)
             }
         }

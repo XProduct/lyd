@@ -1956,7 +1956,15 @@ namespace FlacPlayer.ViewModel
                     result.Add(new PlaybackOutputTargetDto { DeviceId = id, DeviceName = name });
                 }
             }
-            // Empty is allowed: no host audio and no remote renderers (session still controllable).
+            // Never leave the session with zero renderers — empty set made Play appear broken.
+            if (result.Count == 0)
+            {
+                result.Add(new PlaybackOutputTargetDto
+                {
+                    DeviceId = HostOutputDeviceId,
+                    DeviceName = RemoteDisplayName ?? "Host"
+                });
+            }
             return result;
         }
 

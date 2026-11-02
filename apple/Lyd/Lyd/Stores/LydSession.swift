@@ -45,6 +45,10 @@ final class LydSession: ObservableObject {
     @Published private(set) var isHostReachable = false
     @Published private(set) var offlineMessage: String?
     @Published var manualValidateResult: ManualValidateResult = .idle
+    /// Sticky: once we have seen albums this connection, never flash the hydrating empty overlay.
+    @Published private(set) var hasLoadedAlbumCatalog = false
+    /// Sticky: once we have seen songs this connection, never flash the songs hydrating empty overlay.
+    @Published private(set) var hasLoadedSongCatalog = false
     /// Phase E: multi-select Playing on device ids (`LydOutputIds.host` and/or player ids).
     @Published private(set) var outputTargetIds: Set<String> = [LydOutputIds.host]
     /// Other registered Apple players on this host (excludes this device in the UI list).
@@ -118,8 +122,24 @@ final class LydSession: ObservableObject {
     }
 
     /// Connected to a healthy host but catalog not populated yet (Dropbox / scan).
+    /// Once either catalog has loaded this session, stop treating empty polls as “still loading”.
     var isLibraryStillLoading: Bool {
-        phase == .connected && isHostReachable && library.songs.isEmpty && library.albums.isEmpty
+        phase == .connected
+            && isHostReachable
+            && !hasLoadedAlbumCatalog
+            && !hasLoadedSongCatalog
+            && library.songs.isEmpty
+            && library.albums.isEmpty
+    }
+
+    /// Albums tab empty overlay — never cover a previously loaded grid during poll churn.
+    var shouldShowAlbumsEmptyState: Bool {
+        library.albums.isEmpty && !hasLoadedAlbumCatalog
+    }
+
+    /// Songs tab empty overlay — same latch as albums.
+    var shouldShowSongsEmptyState: Bool {
+        library.songs.isEmpty && !hasLoadedSongCatalog
     }
 
     func songs(for album: AlbumDto) -> [SongDto] {
@@ -200,6 +220,8 @@ final class LydSession: ObservableObject {
         isHostReachable = false
         offlineMessage = nil
         library = LibraryDto(songs: [], albums: [], revision: -1)
+        hasLoadedAlbumCatalog = false
+        hasLoadedSongCatalog = false
         playback = PlaybackStateDto(
             isPlaying: false,
             shuffle: false,
@@ -257,11 +279,31 @@ final class LydSession: ObservableObject {
     }
 
     /// Avoid blanking tvOS/iOS grids: skip no-op publishes and keep stable album/song identities.
+    /// Shared by iOS and tvOS — no platform split.
     private func applyLibraryUpdate(_ next: LibraryDto, force: Bool) {
         if !force,
            library.revision >= 0,
            next.revision == library.revision {
+            noteLibraryContentLoaded(library)
             return
+        }
+
+        // Host scan/hydration can briefly return an empty catalog with a bumped revision.
+        // Never wipe a populated grid unless this is an explicit force refresh.
+        if !force {
+            let nextFullyEmpty = next.albums.isEmpty && next.songs.isEmpty
+            let currentPopulated = !library.albums.isEmpty || !library.songs.isEmpty
+            if nextFullyEmpty, currentPopulated {
+                if next.revision != library.revision {
+                    library = LibraryDto(
+                        songs: library.songs,
+                        albums: library.albums,
+                        revision: next.revision
+                    )
+                }
+                noteLibraryContentLoaded(library)
+                return
+            }
         }
 
         let sameAlbumIDs = library.albums.map(\.id) == next.albums.map(\.id)
@@ -278,26 +320,48 @@ final class LydSession: ObservableObject {
                         revision: next.revision
                     )
                 }
+                noteLibraryContentLoaded(library)
                 return
             }
         }
 
-        library = Self.mergingLibrary(current: library, next: next)
+        let merged = Self.mergingLibrary(current: library, next: next, force: force)
+        library = merged
+        noteLibraryContentLoaded(merged)
+    }
+
+    private func noteLibraryContentLoaded(_ dto: LibraryDto) {
+        if !dto.albums.isEmpty { hasLoadedAlbumCatalog = true }
+        if !dto.songs.isEmpty { hasLoadedSongCatalog = true }
     }
 
     /// Reuse equal album/song values by id so SwiftUI ForEach identity stays calm across polls.
-    private static func mergingLibrary(current: LibraryDto, next: LibraryDto) -> LibraryDto {
+    /// When `force` is false, keep prior albums/songs if the incoming side is empty.
+    private static func mergingLibrary(current: LibraryDto, next: LibraryDto, force: Bool) -> LibraryDto {
         let oldAlbums = Dictionary(uniqueKeysWithValues: current.albums.map { ($0.id, $0) })
         let oldSongs = Dictionary(uniqueKeysWithValues: current.songs.map { ($0.id, $0) })
-        let albums = next.albums.map { album -> AlbumDto in
-            if let old = oldAlbums[album.id], old == album { return old }
-            return album
+
+        let incomingAlbums: [AlbumDto]
+        if !force, next.albums.isEmpty, !current.albums.isEmpty {
+            incomingAlbums = current.albums
+        } else {
+            incomingAlbums = next.albums.map { album -> AlbumDto in
+                if let old = oldAlbums[album.id], old == album { return old }
+                return album
+            }
         }
-        let songs = next.songs.map { song -> SongDto in
-            if let old = oldSongs[song.id], old == song { return old }
-            return song
+
+        let incomingSongs: [SongDto]
+        if !force, next.songs.isEmpty, !current.songs.isEmpty {
+            incomingSongs = current.songs
+        } else {
+            incomingSongs = next.songs.map { song -> SongDto in
+                if let old = oldSongs[song.id], old == song { return old }
+                return song
+            }
         }
-        return LibraryDto(songs: songs, albums: albums, revision: next.revision)
+
+        return LibraryDto(songs: incomingSongs, albums: incomingAlbums, revision: next.revision)
     }
 
     func refreshPlayback() async {
@@ -320,20 +384,24 @@ final class LydSession: ObservableObject {
         } else {
             next.remove(deviceId)
         }
-        // Empty is allowed (silence everywhere / remote-only with no local renderer).
+        // Never allow an empty set — that silences every renderer and looks like “play does nothing”.
+        if next.isEmpty {
+            next.insert(LydOutputIds.host)
+        }
         await applyOutputTargets(next)
     }
 
     func applyOutputTargets(_ ids: Set<String>) async {
         guard client != nil else { return }
+        let normalized = Self.nonEmptyOutputTargets(ids)
         let previousLocal = isLocalAudioOutput
         let wasPlaying = effectiveIsPlaying
         let position = effectivePositionMs
         let songId = playback.currentSongId
 
         // Optimistic UI first — hold off host poll overwrites until confirmed.
-        outputTargetIds = ids
-        pendingOutputTargetIds = ids
+        outputTargetIds = normalized
+        pendingOutputTargetIds = normalized
         pendingOutputUntil = Date().addingTimeInterval(3.0)
         let nowLocal = isLocalAudioOutput
 
@@ -394,20 +462,32 @@ final class LydSession: ObservableObject {
 
     func play(songId: String) async {
         selectedTab = .nowPlaying
+        await ensurePlaybackOutputsReady()
         if isLocalAudioOutput {
             // Optimistic stream start — host mutate catches up; same songId avoids restart.
             ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
             await startLocalStream(songId: songId, atMs: 0, autoplay: true)
         }
         await mutate { try await $0.play(songId: songId) }
+        // If host ack left us local but AVPlayer never started (race / failed first start), retry.
+        if isLocalAudioOutput, localPlayer.currentSongId != songId || (!localPlayer.isPlaying && playback.isPlaying) {
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+        } else if isLocalAudioOutput, !localPlayer.isPlaying, localPlayer.currentSongId == songId {
+            localPlayer.resume()
+        }
     }
 
     /// Shuffle off + play album in disc/track order (Windows `play-album`).
     func playAlbum(albumId: String) async {
         selectedTab = .nowPlaying
+        await ensurePlaybackOutputsReady()
         await mutate { client in
             try? await client.shuffle(enabled: false)
             try await client.playAlbum(albumId: albumId)
+        }
+        if isLocalAudioOutput, let songId = playback.currentSongId {
+            ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
         }
     }
 
@@ -510,11 +590,14 @@ final class LydSession: ObservableObject {
                 selectedDisplayName = resolvedName
                 let lib = try await api.library()
                 library = lib
+                noteLibraryContentLoaded(lib)
                 playback = try await api.playbackState()
                 configureLocalPlayerIfNeeded()
                 await registerThisPlayer()
                 lastAppliedSeekGeneration = playback.seekGeneration ?? -1
                 syncOutputTargets(from: playback)
+                // Heal empty Playing on from host and push a real renderer before first play.
+                await ensurePlaybackOutputsReady()
                 if isLocalAudioOutput, let songId = playback.currentSongId {
                     await startLocalStream(
                         songId: songId,
@@ -606,9 +689,28 @@ final class LydSession: ObservableObject {
         }
     }
 
+    /// Guarantees at least one renderer before play/seek transport hits the host.
+    private func ensurePlaybackOutputsReady() async {
+        let normalized = Self.nonEmptyOutputTargets(outputTargetIds)
+        if normalized != outputTargetIds {
+            outputTargetIds = normalized
+        }
+        pendingOutputTargetIds = normalized
+        pendingOutputUntil = Date().addingTimeInterval(3.0)
+        await pushOutputTargetsToHost()
+    }
+
+    private static func nonEmptyOutputTargets(_ ids: Set<String>) -> Set<String> {
+        ids.isEmpty ? [LydOutputIds.host] : ids
+    }
+
     private func pushOutputTargetsToHost() async {
         guard let client else { return }
-        let targets = outputTargetIds.map { id -> PlaybackOutputTargetDto in
+        let ids = Self.nonEmptyOutputTargets(outputTargetIds)
+        if ids != outputTargetIds {
+            outputTargetIds = ids
+        }
+        let targets = ids.map { id -> PlaybackOutputTargetDto in
             if id == LydOutputIds.host {
                 return PlaybackOutputTargetDto(deviceId: LydOutputIds.host, deviceName: selectedDisplayName)
             }
@@ -621,14 +723,15 @@ final class LydSession: ObservableObject {
         do {
             try await client.setPlaybackOutputs(targets)
         } catch {
-            // Older hosts: fall back to legacy single-target API.
+            // Older hosts / POST failures: always attempt a legacy single-target recovery
+            // so play is not stuck with a silent empty remote output set.
             if isLocalAudioOutput && !isHostAudioOutput {
                 try? await client.setPlaybackOutput(
                     target: "remote",
                     deviceId: DeviceIdentity.deviceId,
                     deviceName: DeviceIdentity.displayName
                 )
-            } else if isHostAudioOutput && outputTargetIds.count == 1 {
+            } else {
                 try? await client.setPlaybackOutput(target: "host", deviceId: nil, deviceName: nil)
             }
         }
@@ -650,7 +753,8 @@ final class LydSession: ObservableObject {
         let remoteIds = resolvedOutputTargetIds(from: remote)
 
         if let pending = pendingOutputTargetIds {
-            if let remoteIds, remoteIds == pending {
+            let pendingNormalized = Self.nonEmptyOutputTargets(pending)
+            if let remoteIds, remoteIds == pendingNormalized {
                 pendingOutputTargetIds = nil
                 pendingOutputUntil = nil
                 outputTargetIds = remoteIds
@@ -658,28 +762,36 @@ final class LydSession: ObservableObject {
             }
             // Stale poll / in-flight POST — keep optimistic selection.
             if let until = pendingOutputUntil, Date() < until {
+                outputTargetIds = pendingNormalized
                 return
             }
-            // Grace expired: accept host if we can resolve it; otherwise keep local.
+            // Grace expired: accept host if we can resolve it; otherwise keep local non-empty.
             pendingOutputTargetIds = nil
             pendingOutputUntil = nil
             if let remoteIds {
-                outputTargetIds = remoteIds
+                outputTargetIds = Self.nonEmptyOutputTargets(remoteIds)
+            } else if outputTargetIds.isEmpty {
+                outputTargetIds = [LydOutputIds.host]
             }
             return
         }
 
         guard let remoteIds else {
-            // Missing output fields — don't invent [host] and wipe a valid local selection.
+            // Missing output fields — heal empty local selection only.
+            if outputTargetIds.isEmpty {
+                outputTargetIds = [LydOutputIds.host]
+            }
             return
         }
-        outputTargetIds = remoteIds
+        outputTargetIds = Self.nonEmptyOutputTargets(remoteIds)
     }
 
-    /// `nil` = host omitted output info (don't clobber). Empty set = intentionally no outputs.
+    /// `nil` = host omitted output info (don't clobber). Empty list is treated as host.
     private func resolvedOutputTargetIds(from remote: PlaybackStateDto) -> Set<String>? {
         if let targets = remote.outputTargets {
-            return Set(targets.map(\.deviceId))
+            let ids = Set(targets.map(\.deviceId))
+            // Empty OutputTargets from host previously silenced every renderer.
+            return ids.isEmpty ? [LydOutputIds.host] : ids
         }
         // Legacy single-target fields only when OutputTargets is absent.
         switch remote.outputTarget {
