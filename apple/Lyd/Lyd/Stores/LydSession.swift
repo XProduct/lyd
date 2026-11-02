@@ -723,17 +723,19 @@ final class LydSession: ObservableObject {
         do {
             try await client.setPlaybackOutputs(targets)
         } catch {
-            // Older hosts / POST failures: always attempt a legacy single-target recovery
-            // so play is not stuck with a silent empty remote output set.
-            if isLocalAudioOutput && !isHostAudioOutput {
+            // Legacy single-target recovery must match the user's selection.
+            // Never POST host-only when This device (or any non-host target) is selected —
+            // that was wiping multi / This-device picks and stopping AVPlayer.
+            if ids == [LydOutputIds.host] {
+                try? await client.setPlaybackOutput(target: "host", deviceId: nil, deviceName: nil)
+            } else if ids.contains(DeviceIdentity.deviceId) {
                 try? await client.setPlaybackOutput(
                     target: "remote",
                     deviceId: DeviceIdentity.deviceId,
                     deviceName: DeviceIdentity.displayName
                 )
-            } else {
-                try? await client.setPlaybackOutput(target: "host", deviceId: nil, deviceName: nil)
             }
+            // Other remotes-only / unknown: leave host state alone rather than force host.
         }
     }
 
@@ -765,6 +767,17 @@ final class LydSession: ObservableObject {
                 outputTargetIds = pendingNormalized
                 return
             }
+            // Grace expired but host still disagrees. Never let a lagging host-only
+            // (or missing) poll clobber a user pick that includes This device / remotes —
+            // that stopped AVPlayer after a brief play. Stay sticky and re-push.
+            let remoteIsHostOnly = remoteIds == nil || remoteIds == [LydOutputIds.host]
+            let pendingWantsMoreThanHost = pendingNormalized != [LydOutputIds.host]
+            if pendingWantsMoreThanHost, remoteIsHostOnly || !(remoteIds?.isSuperset(of: pendingNormalized) ?? false) {
+                outputTargetIds = pendingNormalized
+                pendingOutputUntil = Date().addingTimeInterval(3.0)
+                Task { await self.pushOutputTargetsToHost() }
+                return
+            }
             // Grace expired: accept host if we can resolve it; otherwise keep local non-empty.
             pendingOutputTargetIds = nil
             pendingOutputUntil = nil
@@ -781,6 +794,17 @@ final class LydSession: ObservableObject {
             if outputTargetIds.isEmpty {
                 outputTargetIds = [LydOutputIds.host]
             }
+            return
+        }
+        // Don't let steady-state polls drop This device to host-only while AVPlayer
+        // is actively rendering that selection (host lag / partial apply).
+        if outputTargetIds.contains(DeviceIdentity.deviceId),
+           !remoteIds.contains(DeviceIdentity.deviceId),
+           remoteIds == [LydOutputIds.host],
+           localPlayer.currentSongId != nil {
+            pendingOutputTargetIds = outputTargetIds
+            pendingOutputUntil = Date().addingTimeInterval(3.0)
+            Task { await self.pushOutputTargetsToHost() }
             return
         }
         outputTargetIds = Self.nonEmptyOutputTargets(remoteIds)
