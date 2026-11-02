@@ -239,6 +239,48 @@ namespace FlacPlayer.Remote
                     return;
                 }
 
+                if (method == "GET" && path == "/api/v1/players")
+                {
+                    WriteJson(context, 200, new { players = _control.ListPlayers() });
+                    return;
+                }
+
+                if (method == "POST" && path == "/api/v1/players/register")
+                {
+                    var body = ReadJson<PlayerRegisterRequest>(context);
+                    if (body == null || string.IsNullOrEmpty(body.DeviceId))
+                    {
+                        WriteJson(context, 400, new { error = "deviceId_required" });
+                        return;
+                    }
+                    RegisteredPlayerDto registered = null;
+                    InvokeOnUi(() => registered = _control.RegisterPlayer(body));
+                    WriteJson(context, 200, registered);
+                    return;
+                }
+
+                if (method == "POST" && path == "/api/v1/players/heartbeat")
+                {
+                    var body = ReadJson<PlayerHeartbeatRequest>(context) ?? new PlayerHeartbeatRequest();
+                    if (string.IsNullOrEmpty(body.DeviceId))
+                    {
+                        WriteJson(context, 400, new { error = "deviceId_required" });
+                        return;
+                    }
+                    InvokeOnUi(() => _control.ReportPlayerHeartbeat(body.DeviceId, body.PositionMs, body.IsPlaying));
+                    WriteJson(context, 200, _control.GetPlaybackState());
+                    return;
+                }
+
+                if (method == "DELETE" && path.StartsWith("/api/v1/players/", StringComparison.OrdinalIgnoreCase))
+                {
+                    string deviceId = Uri.UnescapeDataString(path.Substring("/api/v1/players/".Length));
+                    bool removed = false;
+                    InvokeOnUi(() => removed = _control.UnregisterPlayer(deviceId));
+                    WriteJson(context, removed ? 200 : 404, removed ? (object)new { ok = true } : new { error = "player_not_found" });
+                    return;
+                }
+
                 if (method == "POST" && path == "/api/v1/playback/play")
                 {
                     var body = ReadJson<PlayRequest>(context);

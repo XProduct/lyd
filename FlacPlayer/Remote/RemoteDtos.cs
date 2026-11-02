@@ -65,6 +65,38 @@ namespace FlacPlayer.Remote
 
         /// <summary>Relative stream URL for the current song, when available.</summary>
         public string StreamUrl { get; set; }
+
+        /// <summary>
+        /// Monotonic transport command sequence. Apple players apply host play/pause/next/seek/shuffle
+        /// when this value changes (command fan-out via shared session poll).
+        /// </summary>
+        public long TransportSeq { get; set; }
+    }
+
+    public sealed class RegisteredPlayerDto
+    {
+        public string DeviceId { get; set; }
+        public string Name { get; set; }
+        public string Platform { get; set; }
+        public string[] Capabilities { get; set; }
+        public bool IsOutput { get; set; }
+        public long LastSeenUnixMs { get; set; }
+    }
+
+    public sealed class PlayerRegisterRequest
+    {
+        public string DeviceId { get; set; }
+        public string Name { get; set; }
+        public string Platform { get; set; }
+        public string[] Capabilities { get; set; }
+    }
+
+    public sealed class PlayerHeartbeatRequest
+    {
+        public string DeviceId { get; set; }
+        /// <summary>Optional position report from the rendering Apple player.</summary>
+        public long? PositionMs { get; set; }
+        public bool? IsPlaying { get; set; }
     }
 
     public sealed class PlayRequest

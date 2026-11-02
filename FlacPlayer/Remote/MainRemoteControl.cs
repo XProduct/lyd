@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using FlacPlayer.ViewModel;
 
 namespace FlacPlayer.Remote
@@ -83,6 +84,26 @@ namespace FlacPlayer.Remote
         public void SetOutput(string deviceId, string deviceName)
         {
             _vm.RemoteSetOutput(deviceId, deviceName);
+        }
+
+        public void ReportPlayerHeartbeat(string deviceId, long? positionMs, bool? isPlaying)
+        {
+            _vm.RemotePlayerHeartbeat(deviceId, positionMs, isPlaying);
+        }
+
+        public IList<RegisteredPlayerDto> ListPlayers()
+        {
+            return _vm.ListRemotePlayers();
+        }
+
+        public RegisteredPlayerDto RegisterPlayer(PlayerRegisterRequest request)
+        {
+            return _vm.RegisterRemotePlayer(request);
+        }
+
+        public bool UnregisterPlayer(string deviceId)
+        {
+            return _vm.UnregisterRemotePlayer(deviceId);
         }
 
         public bool TryGetAlbumCover(string albumId, out byte[] bytes, out string contentType)
