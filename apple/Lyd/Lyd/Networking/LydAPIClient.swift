@@ -149,15 +149,6 @@ final class LydAPIClient: @unchecked Sendable {
 
 extension LydAPIClient {
     static func baseURL(host: String, port: Int) -> URL? {
-        var components = URLComponents()
-        components.scheme = "http"
-        let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.contains(":") && !trimmed.contains(".") {
-            // Likely IPv6 — leave for later; Phase A is IPv4 LAN.
-        }
-        components.host = trimmed
-        components.port = port
-        components.path = "/"
-        return components.url
+        HostAddress.httpBaseURL(host: host, port: port)
     }
 }

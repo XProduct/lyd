@@ -159,7 +159,8 @@ final class LydSession: ObservableObject {
     // MARK: - Private
 
     private func connect(host: String, port: Int, displayName: String) {
-        guard let url = LydAPIClient.baseURL(host: host, port: port) else {
+        let normalizedHost = HostAddress.normalize(host)
+        guard let url = LydAPIClient.baseURL(host: normalizedHost, port: port) else {
             phase = .error("Invalid host")
             return
         }
@@ -168,7 +169,7 @@ final class LydSession: ObservableObject {
         stopDiscovery()
         phase = .connecting
         selectedDisplayName = displayName
-        selectedEndpoint = "\(host):\(port)"
+        selectedEndpoint = HostAddress.endpointLabel(host: normalizedHost, port: port)
         let api = LydAPIClient(baseURL: url)
         client = api
         isBusy = true
@@ -177,7 +178,7 @@ final class LydSession: ObservableObject {
         Task {
             do {
                 let health = try await api.health()
-                HostPreferences.lastSelection = (host, port, health.name.isEmpty ? displayName : health.name)
+                HostPreferences.lastSelection = (normalizedHost, port, health.name.isEmpty ? displayName : health.name)
                 selectedDisplayName = health.name.isEmpty ? displayName : health.name
                 let lib = try await api.library()
                 library = lib

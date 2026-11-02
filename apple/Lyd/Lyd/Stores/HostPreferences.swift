@@ -1,10 +1,11 @@
 import Foundation
 
 struct ManualHost: Hashable, Codable {
+    /// Unbracketed host / IP (IPv6 literals allowed).
     var host: String
     var port: Int
 
-    var endpointLabel: String { "\(host):\(port)" }
+    var endpointLabel: String { HostAddress.endpointLabel(host: host, port: port) }
 }
 
 enum HostPreferences {

@@ -98,7 +98,7 @@ struct SettingsView: View {
             } header: {
                 Text("Manual connection")
             } footer: {
-                Text("Example: 192.168.44.154 port 8080 → http://192.168.44.154:8080/api/v1. Last successful host is remembered.")
+                Text("IPv4 or IPv6 (brackets optional), e.g. 192.168.44.154 or fe80::1 — port 8080. Last successful host is remembered.")
             }
         }
         .navigationTitle("Settings")
@@ -134,7 +134,7 @@ struct SettingsView: View {
 
     private func connectManual() {
         guard let port = Int(manualPort) else { return }
-        let host = manualHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = HostAddress.normalize(manualHost)
         session.connect(manual: ManualHost(host: host, port: port))
     }
 }
