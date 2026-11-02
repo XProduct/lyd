@@ -44,6 +44,9 @@ struct LibraryShellView: View {
         .environment(\.coverMorphNamespace, coverMorph)
         #if os(iOS)
         .tint(LydTheme.primary)
+        #else
+        // System tab bar selection colors on tvOS (no Lyd purple).
+        .tint(.primary)
         #endif
     }
 }

@@ -1,6 +1,7 @@
 {
   "colors" : [
     {
+      "idiom" : "iphone",
       "color" : {
         "color-space" : "srgb",
         "components" : {
@@ -9,10 +10,10 @@
           "green" : "0.286",
           "red" : "0.416"
         }
-      },
-      "idiom" : "universal"
+      }
     },
     {
+      "idiom" : "iphone",
       "appearances" : [
         {
           "appearance" : "luminosity",
@@ -27,8 +28,37 @@
           "green" : "0.286",
           "red" : "0.416"
         }
-      },
-      "idiom" : "universal"
+      }
+    },
+    {
+      "idiom" : "ipad",
+      "color" : {
+        "color-space" : "srgb",
+        "components" : {
+          "alpha" : "1.000",
+          "blue" : "0.839",
+          "green" : "0.286",
+          "red" : "0.416"
+        }
+      }
+    },
+    {
+      "idiom" : "ipad",
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
+      "color" : {
+        "color-space" : "srgb",
+        "components" : {
+          "alpha" : "1.000",
+          "blue" : "0.839",
+          "green" : "0.286",
+          "red" : "0.416"
+        }
+      }
     }
   ],
   "info" : {
