@@ -63,7 +63,10 @@ namespace FlacPlayer.Remote
         private static string[] BuildPrefixCandidates(int port)
         {
             var list = new System.Collections.Generic.List<string>();
+            // Strong wildcard: HTTP.sys dual-stack (IPv4 + IPv6) when URL ACL allows it.
             list.Add("http://+:" + port + "/");
+            // Explicit IPv6 any (separate ACL on some Windows builds).
+            list.Add("http://[::]:" + port + "/");
             try
             {
                 foreach (var ip in Dns.GetHostAddresses(Dns.GetHostName()))
@@ -72,12 +75,55 @@ namespace FlacPlayer.Remote
                     {
                         list.Add("http://" + ip + ":" + port + "/");
                     }
+                    else if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                        && !ip.IsIPv6LinkLocal
+                        && !IPAddress.IsLoopback(ip))
+                    {
+                        list.Add("http://[" + ip + "]:" + port + "/");
+                    }
                 }
             }
             catch { }
             list.Add("http://127.0.0.1:" + port + "/");
+            list.Add("http://[::1]:" + port + "/");
             list.Add("http://localhost:" + port + "/");
             return list.ToArray();
+        }
+
+        /// <summary>Build an absolute URL using the request authority (IPv6 hosts already bracketed by Uri).</summary>
+        internal static string AbsoluteApiUrl(HttpListenerRequest request, string absolutePath)
+        {
+            if (request == null || request.Url == null)
+            {
+                return absolutePath;
+            }
+            string authority = request.Url.GetLeftPart(UriPartial.Authority).TrimEnd('/');
+            if (!absolutePath.StartsWith("/"))
+            {
+                absolutePath = "/" + absolutePath;
+            }
+            return authority + absolutePath;
+        }
+
+        private static void AbsolutizeCoverUrls(HttpListenerRequest request, LibraryDto library)
+        {
+            if (library == null || library.Albums == null)
+            {
+                return;
+            }
+            foreach (AlbumDto album in library.Albums)
+            {
+                if (album == null || string.IsNullOrEmpty(album.CoverUrl))
+                {
+                    continue;
+                }
+                if (album.CoverUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                    || album.CoverUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                album.CoverUrl = AbsoluteApiUrl(request, album.CoverUrl);
+            }
         }
 
         public void Stop()
@@ -164,6 +210,7 @@ namespace FlacPlayer.Remote
                 if (method == "GET" && (path == "/api/v1/library" || path == "/api/v1/songs" || path == "/api/v1/albums"))
                 {
                     LibraryDto library = _control.GetLibrary();
+                    AbsolutizeCoverUrls(context.Request, library);
                     if (path == "/api/v1/songs")
                     {
                         WriteJson(context, 200, new { songs = library.Songs, revision = library.Revision });

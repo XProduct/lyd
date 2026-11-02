@@ -16,7 +16,7 @@ namespace FlacPlayer.Remote
 
             MessageBoxResult answer = MessageBox.Show(
                 "Lyd needs a one-time Windows permission to accept remote connections on TCP port " + port +
-                " (and HTTP URL reservation). Allow now? An elevation prompt may appear.",
+                " (IPv4 + IPv6 HTTP URL reservation and firewall). Allow now? An elevation prompt may appear.",
                 "Lyd Remote",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Information);
@@ -27,10 +27,14 @@ namespace FlacPlayer.Remote
             }
 
             string user = WindowsIdentity.GetCurrent().Name;
+            // '+' strong wildcard covers dual-stack; also reserve [::] explicitly for builds that need it.
             string script =
                 "netsh http add urlacl url=http://+:" + port + "/ user=\"" + user + "\"\r\n" +
+                "netsh http add urlacl url=http://[::]:" + port + "/ user=\"" + user + "\"\r\n" +
                 "netsh advfirewall firewall delete rule name=\"Lyd Remote API\"\r\n" +
+                "netsh advfirewall firewall delete rule name=\"Lyd Remote API IPv6\"\r\n" +
                 "netsh advfirewall firewall add rule name=\"Lyd Remote API\" dir=in action=allow protocol=TCP localport=" + port + " profile=private,domain\r\n" +
+                "netsh advfirewall firewall add rule name=\"Lyd Remote API IPv6\" dir=in action=allow protocol=TCP localport=" + port + " profile=private,domain interfacetype=any\r\n" +
                 "netsh advfirewall firewall delete rule name=\"Lyd Remote mDNS\"\r\n" +
                 "netsh advfirewall firewall add rule name=\"Lyd Remote mDNS\" dir=in action=allow protocol=UDP localport=5353 profile=private,domain\r\n";
 

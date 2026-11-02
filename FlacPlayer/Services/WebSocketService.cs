@@ -82,7 +82,7 @@ namespace FlacPlayer
 
             string host = Environment.MachineName;
             string instance = "Lyd on " + host;
-            string baseUrl = "http://" + GetLanIp() + ":" + _settings.Port + "/api/v1";
+            string baseUrl = "http://" + FormatHostForUrl(GetLanIp()) + ":" + _settings.Port + "/api/v1";
             if (!lanBound)
             {
                 baseUrl = "http://127.0.0.1:" + _settings.Port + "/api/v1";
@@ -92,8 +92,9 @@ namespace FlacPlayer
             try
             {
                 _mdns.Start(instance, _settings.Port, _control.DisplayName ?? instance);
-                DiscoverabilityHint = "Discoverable as \"" + instance + "\" (_lyd._tcp). API: " + baseUrl +
-                    (lanBound ? "" : " (localhost only until firewall/URL ACL is granted)");
+                string v6 = _mdns.Ipv6Enabled ? " A+AAAA" : " A-only";
+                DiscoverabilityHint = "Discoverable as \"" + instance + "\" (_lyd._tcp" + v6 + "). API: " + baseUrl +
+                    (lanBound ? " (IPv4+IPv6)" : " (localhost only until firewall/URL ACL is granted)");
             }
             catch (Exception ex)
             {
@@ -152,6 +153,25 @@ namespace FlacPlayer
             {
             }
             return "127.0.0.1";
+        }
+
+        /// <summary>Bracket IPv6 literals for use in http:// URLs.</summary>
+        internal static string FormatHostForUrl(string host)
+        {
+            if (string.IsNullOrEmpty(host))
+            {
+                return host;
+            }
+            if (host.StartsWith("["))
+            {
+                return host;
+            }
+            IPAddress addr;
+            if (IPAddress.TryParse(host, out addr) && addr.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                return "[" + host + "]";
+            }
+            return host;
         }
     }
 }

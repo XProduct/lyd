@@ -14,14 +14,26 @@ namespace FlacPlayer.Remote
         private ServiceProfile _profile;
         private bool _started;
 
+        /// <summary>True when AAAA / IPv6 multicast advertising is active.</summary>
+        public bool Ipv6Enabled { get; private set; }
+
         public void Start(string instanceName, int port, string displayName)
         {
             Stop();
 
-            // Prefer IPv4-only; IPv6 link-local init is a common MulticastService failure mode on Windows.
             _mdns = new MulticastService(FilterNics);
             _mdns.UseIpv4 = true;
-            _mdns.UseIpv6 = false;
+            // Advertise AAAA when possible so Apple Bonjour clients that prefer IPv6 can resolve the service.
+            try
+            {
+                _mdns.UseIpv6 = true;
+                Ipv6Enabled = true;
+            }
+            catch
+            {
+                _mdns.UseIpv6 = false;
+                Ipv6Enabled = false;
+            }
 
             _discovery = new ServiceDiscovery(_mdns);
 
@@ -32,9 +44,39 @@ namespace FlacPlayer.Remote
             _profile.AddProperty("ver", "1");
             _profile.AddProperty("name", displayName ?? instanceName);
 
-            _discovery.Advertise(_profile);
-            _mdns.Start();
-            _started = true;
+            try
+            {
+                _discovery.Advertise(_profile);
+                _mdns.Start();
+                _started = true;
+            }
+            catch (Exception)
+            {
+                // Fall back to IPv4-only if dual-stack mDNS init fails (seen on some Windows NIC stacks).
+                if (Ipv6Enabled)
+                {
+                    try
+                    {
+                        try { _mdns.Stop(); } catch { }
+                        try { _mdns.Dispose(); } catch { }
+                        _mdns = new MulticastService(FilterNics);
+                        _mdns.UseIpv4 = true;
+                        _mdns.UseIpv6 = false;
+                        Ipv6Enabled = false;
+                        _discovery = new ServiceDiscovery(_mdns);
+                        _discovery.Advertise(_profile);
+                        _mdns.Start();
+                        _started = true;
+                        return;
+                    }
+                    catch
+                    {
+                        Ipv6Enabled = false;
+                        throw;
+                    }
+                }
+                throw;
+            }
         }
 
         public void Stop()
@@ -68,6 +110,7 @@ namespace FlacPlayer.Remote
             _mdns = null;
             _profile = null;
             _started = false;
+            Ipv6Enabled = false;
         }
 
         public void Dispose()
