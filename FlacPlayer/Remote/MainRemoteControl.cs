@@ -95,6 +95,11 @@ namespace FlacPlayer.Remote
             _vm.RemoteSetAudioOutput(target, deviceId, deviceName);
         }
 
+        public void SetAudioOutputs(System.Collections.Generic.IList<PlaybackOutputTargetDto> targets)
+        {
+            _vm.RemoteSetAudioOutputs(targets);
+        }
+
         public void ApplyPlaybackHeartbeat(string deviceId, long positionMs, long? durationMs, string songId)
         {
             _vm.RemoteApplyPlaybackHeartbeat(deviceId, positionMs, durationMs, songId);

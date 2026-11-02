@@ -53,19 +53,31 @@ namespace FlacPlayer.Remote
         public string CurrentSongId { get; set; }
         public SongDto CurrentSong { get; set; }
         public double Volume { get; set; }
-        /// <summary>Phase E: "host" (irrKlang) or "remote" (Apple AVPlayer pulls /stream).</summary>
+        /// <summary>Legacy: "host" | "remote" | "multi".</summary>
         public string OutputTarget { get; set; }
+        /// <summary>Legacy: first remote device id when remotes are selected.</summary>
         public string OutputDeviceId { get; set; }
+        /// <summary>Multi-select Playing on targets (deviceId "host" = Windows irrKlang).</summary>
+        public List<PlaybackOutputTargetDto> OutputTargets { get; set; }
         /// <summary>Bumped on every authoritative seek / track start so Apple clients re-seek.</summary>
         public long SeekGeneration { get; set; }
     }
 
+    public sealed class PlaybackOutputTargetDto
+    {
+        /// <summary>"host" or a registered player device id.</summary>
+        public string DeviceId { get; set; }
+        public string DeviceName { get; set; }
+    }
+
     public sealed class PlaybackOutputRequest
     {
-        /// <summary>"host" or "remote".</summary>
+        /// <summary>Legacy: "host" or "remote". Ignored when Targets is non-empty.</summary>
         public string Target { get; set; }
         public string DeviceId { get; set; }
         public string DeviceName { get; set; }
+        /// <summary>Multi-select Playing on list. Empty/null falls back to Target/DeviceId.</summary>
+        public List<PlaybackOutputTargetDto> Targets { get; set; }
     }
 
     /// <summary>Phase E: Apple player reports playhead while it is the audio renderer.</summary>
@@ -92,6 +104,8 @@ namespace FlacPlayer.Remote
         public string Platform { get; set; }
         public string[] Capabilities { get; set; }
         public long LastSeenUnixMs { get; set; }
+        /// <summary>True when this player is in the current multi-output set.</summary>
+        public bool IsOutput { get; set; }
     }
 
     public sealed class PlayRequest

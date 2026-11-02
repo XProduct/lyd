@@ -243,9 +243,17 @@ namespace FlacPlayer.Remote
                 if (method == "POST" && path == "/api/v1/playback/output")
                 {
                     var body = ReadJson<PlaybackOutputRequest>(context) ?? new PlaybackOutputRequest();
-                    string target = string.IsNullOrWhiteSpace(body.Target) ? "host" : body.Target.Trim();
-                    InvokeOnUi(() => _control.SetAudioOutput(target, body.DeviceId, body.DeviceName));
-                    WriteJson(context, 200, new { ok = true, target = target, deviceId = body.DeviceId });
+                    if (body.Targets != null && body.Targets.Count > 0)
+                    {
+                        InvokeOnUi(() => _control.SetAudioOutputs(body.Targets));
+                        WriteJson(context, 200, new { ok = true, targets = body.Targets });
+                    }
+                    else
+                    {
+                        string target = string.IsNullOrWhiteSpace(body.Target) ? "host" : body.Target.Trim();
+                        InvokeOnUi(() => _control.SetAudioOutput(target, body.DeviceId, body.DeviceName));
+                        WriteJson(context, 200, new { ok = true, target = target, deviceId = body.DeviceId });
+                    }
                     return;
                 }
 

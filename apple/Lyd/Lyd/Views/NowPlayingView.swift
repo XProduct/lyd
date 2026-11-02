@@ -416,22 +416,48 @@ struct NowPlayingView: View {
                 Text("Playing on")
                     .font(.title3)
                     .foregroundStyle(Color.secondary)
-                HStack(spacing: 16) {
-                    TVNowPlayingButton(
-                        title: PlaybackOutputMode.host.title(hostName: session.selectedDisplayName),
-                        systemImage: "desktopcomputer",
-                        emphasized: session.playingOn == .host
-                    ) {
-                        bumpIdleTimer()
-                        Task { await session.setPlayingOn(.host) }
+                Text("Select every device that should play audio. Uncheck This device for remote-only control.")
+                    .font(.body)
+                    .foregroundStyle(Color.secondary)
+                TVNowPlayingButton(
+                    title: session.selectedDisplayName.isEmpty ? "Host" : session.selectedDisplayName,
+                    systemImage: "desktopcomputer",
+                    emphasized: session.isHostAudioOutput
+                ) {
+                    bumpIdleTimer()
+                    Task {
+                        await session.setOutputTarget(
+                            deviceId: LydOutputIds.host,
+                            enabled: !session.isHostAudioOutput
+                        )
                     }
+                }
+                TVNowPlayingButton(
+                    title: "This device",
+                    systemImage: "appletv",
+                    emphasized: session.isLocalAudioOutput
+                ) {
+                    bumpIdleTimer()
+                    Task {
+                        await session.setOutputTarget(
+                            deviceId: DeviceIdentity.deviceId,
+                            enabled: !session.isLocalAudioOutput
+                        )
+                    }
+                }
+                ForEach(session.registeredPlayers) { player in
                     TVNowPlayingButton(
-                        title: "This device",
-                        systemImage: "appletv",
-                        emphasized: session.playingOn == .thisDevice
+                        title: player.displayName,
+                        systemImage: "hifispeaker",
+                        emphasized: session.outputTargetIds.contains(player.deviceId)
                     ) {
                         bumpIdleTimer()
-                        Task { await session.setPlayingOn(.thisDevice) }
+                        Task {
+                            await session.setOutputTarget(
+                                deviceId: player.deviceId,
+                                enabled: !session.outputTargetIds.contains(player.deviceId)
+                            )
+                        }
                     }
                 }
             }
@@ -600,27 +626,75 @@ struct NowPlayingView: View {
 
     #if os(iOS)
     private var playingOnPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Playing on")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            Picker(
-                "Playing on",
-                selection: Binding(
-                    get: { session.playingOn },
-                    set: { mode in
-                        Task { await session.setPlayingOn(mode) }
-                    }
-                )
+            Text("Choose where audio plays. Uncheck This device to control without streaming here.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            outputToggleRow(
+                title: session.selectedDisplayName.isEmpty ? "Host" : session.selectedDisplayName,
+                systemImage: "desktopcomputer",
+                selected: session.isHostAudioOutput
             ) {
-                Text(PlaybackOutputMode.host.title(hostName: session.selectedDisplayName))
-                    .tag(PlaybackOutputMode.host)
-                Text(PlaybackOutputMode.thisDevice.title(hostName: session.selectedDisplayName))
-                    .tag(PlaybackOutputMode.thisDevice)
+                Task {
+                    await session.setOutputTarget(
+                        deviceId: LydOutputIds.host,
+                        enabled: !session.isHostAudioOutput
+                    )
+                }
             }
-            .pickerStyle(.segmented)
+
+            outputToggleRow(
+                title: "This device",
+                systemImage: "iphone",
+                selected: session.isLocalAudioOutput
+            ) {
+                Task {
+                    await session.setOutputTarget(
+                        deviceId: DeviceIdentity.deviceId,
+                        enabled: !session.isLocalAudioOutput
+                    )
+                }
+            }
+
+            ForEach(session.registeredPlayers) { player in
+                outputToggleRow(
+                    title: player.displayName,
+                    systemImage: "hifispeaker",
+                    selected: session.outputTargetIds.contains(player.deviceId)
+                ) {
+                    Task {
+                        await session.setOutputTarget(
+                            deviceId: player.deviceId,
+                            enabled: !session.outputTargetIds.contains(player.deviceId)
+                        )
+                    }
+                }
+            }
         }
         .padding(.horizontal)
+    }
+
+    private func outputToggleRow(
+        title: String,
+        systemImage: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected ? LydTheme.primary : Color.secondary)
+                Label(title, systemImage: systemImage)
+                    .foregroundStyle(Color.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
     }
     #endif
 
@@ -635,9 +709,14 @@ struct NowPlayingView: View {
         Text("Controlling \(session.selectedDisplayName) · \(session.selectedEndpoint)")
             .font(.caption)
             .foregroundStyle(.secondary)
-        Text("Playing on \(session.playingOn.title(hostName: session.selectedDisplayName))")
+        Text("Playing on \(session.playingOnSummary)")
             .font(.caption)
             .foregroundStyle(.secondary)
+        if !session.isLocalAudioOutput {
+            Text("Remote only — no audio on this device")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var coverURL: URL? {

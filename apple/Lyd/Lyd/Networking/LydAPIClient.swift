@@ -147,12 +147,25 @@ final class LydAPIClient: @unchecked Sendable {
         try await post("api/v1/playback/volume", body: VolumeRequest(level: clamped))
     }
 
-    /// Phase E: tell host whether irrKlang or a remote client renders audio.
+    /// Phase E: multi-select Playing on (host and/or registered players).
+    func setPlaybackOutputs(_ targets: [PlaybackOutputTargetDto]) async throws {
+        try await post(
+            "api/v1/playback/output",
+            body: PlaybackOutputRequest(target: nil, deviceId: nil, deviceName: nil, targets: targets)
+        )
+    }
+
+    /// Legacy single-target output (older hosts without Targets).
     func setPlaybackOutput(target: String, deviceId: String?, deviceName: String?) async throws {
         try await post(
             "api/v1/playback/output",
-            body: PlaybackOutputRequest(target: target, deviceId: deviceId, deviceName: deviceName)
+            body: PlaybackOutputRequest(target: target, deviceId: deviceId, deviceName: deviceName, targets: nil)
         )
+    }
+
+    func listPlayers() async throws -> [PlayerDto] {
+        let response: PlayersResponse = try await get("api/v1/players")
+        return response.players ?? []
     }
 
     /// Phase E: report playhead while this device is the audio renderer.
