@@ -184,7 +184,6 @@ struct NowPlayingView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .navigationTitle("Now Playing")
-        .toolbar { HostToolbar() }
         .onAppear { volumeDraft = session.playback.volume }
     }
 
@@ -218,14 +217,3 @@ private extension String {
     }
 }
 
-struct HostToolbar: ToolbarContent {
-    @EnvironmentObject private var session: LydSession
-
-    var body: some ToolbarContent {
-        ToolbarItem(placement: .cancellationAction) {
-            Button("Hosts") {
-                session.disconnect(returnToPicker: true)
-            }
-        }
-    }
-}

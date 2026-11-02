@@ -77,6 +77,16 @@ final class LydSession: ObservableObject {
         libraryPollTask = nil
         playbackPollTask = nil
         client = nil
+        library = LibraryDto(songs: [], albums: [], revision: -1)
+        playback = PlaybackStateDto(
+            isPlaying: false,
+            shuffle: false,
+            positionMs: 0,
+            durationMs: 0,
+            currentSongId: nil,
+            currentSong: nil,
+            volume: 0.5
+        )
         if returnToPicker {
             phase = .pickingHost
             startDiscovery()

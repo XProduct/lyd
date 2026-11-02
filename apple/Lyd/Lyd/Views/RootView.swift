@@ -2,20 +2,15 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var session: LydSession
+    @State private var didBootstrap = false
 
     var body: some View {
-        Group {
-            switch session.phase {
-            case .pickingHost, .connecting, .error:
-                HostPickerView()
-            case .connected:
-                LibraryShellView()
-            }
-        }
-        .onAppear {
-            if case .pickingHost = session.phase {
+        LibraryShellView()
+            .onAppear {
+                guard !didBootstrap else { return }
+                didBootstrap = true
                 session.startDiscovery()
+                session.reconnectLastIfPossible()
             }
-        }
     }
 }

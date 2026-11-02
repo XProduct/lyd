@@ -28,13 +28,16 @@ struct SongsView: View {
             await session.refreshLibrary(force: true)
         }
         #endif
-        .toolbar { HostToolbar() }
         .overlay {
             if session.library.songs.isEmpty {
                 ContentUnavailableView(
-                    "No songs yet",
+                    session.phase == .connected ? "No songs yet" : "Not connected",
                     systemImage: "music.note.list",
-                    description: Text("Connect to a Lyd host that has finished scanning.")
+                    description: Text(
+                        session.phase == .connected
+                            ? "Connect to a Lyd host that has finished scanning."
+                            : "Choose a Lyd host in Settings."
+                    )
                 )
             }
         }
