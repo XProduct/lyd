@@ -151,26 +151,28 @@ struct NowPlayingView: View {
 
     /// Art + metadata + main transport — first screen; no seek / shuffle / volume.
     private var tvOSPrimaryPage: some View {
-        HStack(alignment: .center, spacing: 48) {
-            CoverImage(url: coverURL)
-                .aspectRatio(1, contentMode: .fit)
-                .frame(maxWidth: 520)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .shadow(color: .black.opacity(0.45), radius: 24, y: 14)
-                .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollablePageTitle(title: "Now Playing")
+                .padding(.bottom, 28)
 
-            VStack(alignment: .leading, spacing: 28) {
-                ScrollablePageTitle(title: "Now Playing")
-                    .padding(.bottom, 20)
+            HStack(alignment: .center, spacing: 48) {
+                CoverImage(url: coverURL)
+                    .aspectRatio(1, contentMode: .fit)
+                    .frame(maxWidth: 520)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .shadow(color: .black.opacity(0.45), radius: 24, y: 14)
+                    .accessibilityHidden(true)
 
-                metadataBlock(centered: false)
+                // Intrinsic height so HStack centers this block against the cover.
+                VStack(alignment: .leading, spacing: 28) {
+                    metadataBlock(centered: false)
 
-                transportRow
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer(minLength: 0)
+                    transportRow
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
 
