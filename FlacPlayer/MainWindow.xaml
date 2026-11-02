@@ -331,6 +331,7 @@
             <Polyline Points="3, 0 0, 18" Stroke="{StaticResource Foreground}" StrokeThickness="1" Margin="6,8,6,0" />
             <TextBlock Text="{Binding CurrentPlayingSong.Bitrate}" FontSize="12" />
             <TextBlock Text=" kbps" FontSize="12" />
+            <TextBlock Text="{Binding PlayingOnLabel}" Margin="18,0,0,0" FontSize="12" Opacity="0.75" VerticalAlignment="Center" />
         </StackPanel>
     </Grid>
 </Window>

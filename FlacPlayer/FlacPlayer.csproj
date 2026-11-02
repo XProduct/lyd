@@ -169,6 +169,7 @@
     <Compile Include="Remote\LydApiServer.cs" />
     <Compile Include="Remote\MainRemoteControl.cs" />
     <Compile Include="Remote\MdnsAdvertiser.cs" />
+    <Compile Include="Remote\PlayerRegistry.cs" />
     <Compile Include="Remote\RemoteDtos.cs" />
     <Compile Include="Remote\RemoteHostSettings.cs" />
     <Compile Include="Services\Player.cs" />

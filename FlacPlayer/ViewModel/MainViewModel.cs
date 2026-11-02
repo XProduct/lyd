@@ -35,6 +35,8 @@ namespace FlacPlayer.ViewModel
         private long _remotePositionMs;
         private long _remoteDurationMs;
         private readonly Stopwatch _remotePositionWatch = new Stopwatch();
+        /// <summary>Bumped on host transport changes so Apple players can fan-in commands.</summary>
+        private long _transportSeq;
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
@@ -1385,8 +1387,12 @@ namespace FlacPlayer.ViewModel
             else
             {
                 _remoteSessionPlaying = true;
-                _remotePositionWatch.Start();
+                if (!_remotePositionWatch.IsRunning)
+                {
+                    _remotePositionWatch.Start();
+                }
             }
+            BumpTransportSeq();
         }
 
         private void PlayOnDemand()
@@ -1405,6 +1411,7 @@ namespace FlacPlayer.ViewModel
             UpdateCurrentSong(song);
             AddSongsToQueue();
             StartPlaybackForCurrentOutput(song);
+            BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
         }
 
@@ -1428,6 +1435,7 @@ namespace FlacPlayer.ViewModel
                 CurrentTrackDuration = 0;
                 PercentageComplete = 0;
             }
+            BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
             return 0;
         }
@@ -1444,6 +1452,7 @@ namespace FlacPlayer.ViewModel
                 _remoteSessionPlaying = false;
                 _remotePositionWatch.Stop();
             }
+            BumpTransportSeq();
         }
 
         private void TogglePlayPause()
@@ -1458,6 +1467,11 @@ namespace FlacPlayer.ViewModel
             }
 
             RaisePropertyChanged(nameof(IsPlaying));
+        }
+
+        private void BumpTransportSeq()
+        {
+            Interlocked.Increment(ref _transportSeq);
         }
 
         /// <summary>
@@ -1713,7 +1727,23 @@ namespace FlacPlayer.ViewModel
         private void SetPlayTime()
         {
             int seconds = (int)(CurrentTrackDuration * PercentageComplete / 100);
-            Player.SetPlayPosition(seconds);
+            if (IsHostAudioOutput)
+            {
+                Player.SetPlayPosition(seconds);
+            }
+            else
+            {
+                _remotePositionMs = seconds * 1000L;
+                if (_remoteSessionPlaying)
+                {
+                    _remotePositionWatch.Restart();
+                }
+                else
+                {
+                    _remotePositionWatch.Reset();
+                }
+            }
+            BumpTransportSeq();
         }
 
         private void StartSongPositionListener()
@@ -1728,20 +1758,41 @@ namespace FlacPlayer.ViewModel
         {
             if (IsPrecentageUpdateActive)
             {
-                long time = Player.GetCurrentSongPlayTime();
-                int currentSeconds = (int)time / 1000;
+                long timeMs;
+                bool finished;
 
-                if (Player.IsFinished())
+                if (IsHostAudioOutput)
                 {
-                    PlayNextSong();
+                    timeMs = Player.GetCurrentSongPlayTime();
+                    if (timeMs < 0) timeMs = 0;
+                    finished = Player.IsFinished();
                 }
                 else
                 {
+                    // Shared session on Apple output: WPF still drives the playhead UI.
+                    timeMs = _remotePositionMs;
+                    if (_remoteSessionPlaying && _remotePositionWatch.IsRunning)
+                    {
+                        timeMs += _remotePositionWatch.ElapsedMilliseconds;
+                    }
+                    finished = _remoteSessionPlaying
+                        && _remoteDurationMs > 0
+                        && timeMs >= _remoteDurationMs;
+                }
+
+                int currentSeconds = (int)(timeMs / 1000);
+
+                if (finished)
+                {
+                    PlayNextSong();
+                }
+                else if (IsPlaying || !IsHostAudioOutput)
+                {
+                    // Keep Now Playing chrome live for remote output even while polling Apple heartbeats.
                     CurrentPositionText = currentSeconds / 60 + ":" + (currentSeconds % 60 < 10 ? "0" + currentSeconds % 60 : (currentSeconds % 60).ToString());
 
                     if (CurrentTrackDuration != 0)
                     {
-
                         PercentageComplete = (((double)currentSeconds / CurrentTrackDuration) * 100);
                     }
                 }
@@ -1757,6 +1808,7 @@ namespace FlacPlayer.ViewModel
         {
             IsShuffleMode = !IsShuffleMode;
             AddSongsToQueue();
+            BumpTransportSeq();
         }
 
         private void Shuffle()
@@ -1776,6 +1828,7 @@ namespace FlacPlayer.ViewModel
                 UpdateCurrentSong(prev);
                 StartPlaybackForCurrentOutput(prev);
             }
+            BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
         }
 
@@ -1856,7 +1909,8 @@ namespace FlacPlayer.ViewModel
                 OutputDeviceName = IsHostAudioOutput
                     ? (string.IsNullOrEmpty(_outputDeviceName) ? RemoteDisplayName : _outputDeviceName)
                     : _outputDeviceName,
-                StreamUrl = streamUrl
+                StreamUrl = streamUrl,
+                TransportSeq = _transportSeq
             };
         }
 
@@ -1912,6 +1966,7 @@ namespace FlacPlayer.ViewModel
             {
                 IsShuffleMode = enabled.Value;
                 AddSongsToQueue();
+                BumpTransportSeq();
             }
             else
             {
@@ -1920,6 +1975,14 @@ namespace FlacPlayer.ViewModel
         }
 
         public void RemoteSeek(long positionMs)
+        {
+            ApplySessionPosition(positionMs, bumpTransport: true);
+        }
+
+        /// <summary>
+        /// Apply a playhead position. Host/UI seeks bump transportSeq; Apple output heartbeats do not.
+        /// </summary>
+        private void ApplySessionPosition(long positionMs, bool bumpTransport)
         {
             if (positionMs < 0) positionMs = 0;
             if (IsHostAudioOutput)
@@ -1937,6 +2000,10 @@ namespace FlacPlayer.ViewModel
                 {
                     _remotePositionWatch.Reset();
                 }
+            }
+            if (bumpTransport)
+            {
+                BumpTransportSeq();
             }
         }
 
@@ -1998,7 +2065,112 @@ namespace FlacPlayer.ViewModel
                 _outputDeviceName = RemoteDisplayName;
             }
 
+            BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
+            RaisePropertyChanged(nameof(PlayingOnLabel));
+        }
+
+        /// <summary>Settings / Now Playing subtitle: where audio is rendering.</summary>
+        public string PlayingOnLabel
+        {
+            get
+            {
+                if (IsHostAudioOutput)
+                {
+                    return "Playing on: " + RemoteDisplayName + " (this PC)";
+                }
+                return "Playing on: " + (_outputDeviceName ?? _outputDeviceId);
+            }
+        }
+
+        public RegisteredPlayerDto RegisterRemotePlayer(PlayerRegisterRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.DeviceId))
+            {
+                return null;
+            }
+            RegisteredPlayer player = PlayerRegistry.Instance.Register(
+                request.DeviceId,
+                request.Name,
+                request.Platform,
+                request.Capabilities);
+            return ToPlayerDto(player);
+        }
+
+        public bool UnregisterRemotePlayer(string deviceId)
+        {
+            bool removed = PlayerRegistry.Instance.Unregister(deviceId);
+            if (removed
+                && !IsHostAudioOutput
+                && string.Equals(_outputDeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                // Output player left — fall back to host so session keeps a renderer.
+                RemoteSetOutput("host", RemoteDisplayName);
+            }
+            return removed;
+        }
+
+        public IList<RegisteredPlayerDto> ListRemotePlayers()
+        {
+            return PlayerRegistry.Instance.ListActive().Select(ToPlayerDto).ToList();
+        }
+
+        public void RemotePlayerHeartbeat(string deviceId, long? positionMs, bool? isPlaying)
+        {
+            RegisteredPlayer player;
+            if (!string.IsNullOrWhiteSpace(deviceId))
+            {
+                if (!PlayerRegistry.Instance.Heartbeat(deviceId, out player))
+                {
+                    // Auto-register minimal entry so heartbeats from Playing-on device still land.
+                    PlayerRegistry.Instance.Register(deviceId, deviceId, "unknown", new[] { "play" });
+                    PlayerRegistry.Instance.Heartbeat(deviceId, out player);
+                }
+            }
+
+            if (!IsHostAudioOutput
+                && !string.IsNullOrWhiteSpace(deviceId)
+                && string.Equals(_outputDeviceId, deviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                if (positionMs.HasValue)
+                {
+                    ApplySessionPosition(positionMs.Value, bumpTransport: false);
+                }
+                if (isPlaying.HasValue)
+                {
+                    // Output device reports local AVPlayer state into the shared session (no seq bump).
+                    if (isPlaying.Value && !_remoteSessionPlaying)
+                    {
+                        _remoteSessionPlaying = true;
+                        _remotePositionWatch.Start();
+                    }
+                    else if (!isPlaying.Value && _remoteSessionPlaying)
+                    {
+                        CaptureRemotePosition();
+                        _remoteSessionPlaying = false;
+                        _remotePositionWatch.Stop();
+                    }
+                    RaisePropertyChanged(nameof(IsPlaying));
+                }
+            }
+        }
+
+        private RegisteredPlayerDto ToPlayerDto(RegisteredPlayer player)
+        {
+            if (player == null)
+            {
+                return null;
+            }
+            return new RegisteredPlayerDto
+            {
+                DeviceId = player.DeviceId,
+                Name = player.Name,
+                Platform = player.Platform,
+                Capabilities = player.Capabilities,
+                IsOutput = !IsHostAudioOutput
+                    && string.Equals(_outputDeviceId, player.DeviceId, StringComparison.OrdinalIgnoreCase),
+                LastSeenUnixMs = new DateTimeOffset(player.LastSeenUtc).ToUnixTimeMilliseconds()
+            };
         }
 
         public bool TryGetRemoteSongPath(string songId, out string path)
