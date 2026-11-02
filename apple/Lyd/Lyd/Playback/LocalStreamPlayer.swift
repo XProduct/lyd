@@ -103,7 +103,7 @@ final class LocalStreamPlayer: ObservableObject {
         self.positionMs = max(0, positionMs)
     }
 
-    /// Phase F soft drift correction. Allows catch-up rates above 1.05 when far behind.
+    /// Phase F soft drift correction (narrow band; session throttles how often this fires).
     /// No-ops while paused so a rate reset cannot accidentally resume.
     func setPlaybackRate(_ rate: Float) {
         guard let player else { return }
