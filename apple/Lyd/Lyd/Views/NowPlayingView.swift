@@ -203,18 +203,14 @@ struct NowPlayingView: View {
             transportFocus = .playPause
         }
         .defaultFocus($transportFocus, .playPause)
-        .onChange(of: session.playback.currentSongId) { _, _ in
-            bumpIdleTimer()
-        }
-        .onChange(of: session.playback.isPlaying) { _, _ in
-            bumpIdleTimer()
-        }
+        // Track / play-state changes must NOT exit cinema — art/metadata update in place.
+        // Only remote interaction (below) calls bumpIdleTimer().
         .onChange(of: idleReset) { _, token in
             guard !reduceMotion else {
                 cinemaMode = false
                 return
             }
-            cinemaMode = false
+            // bumpIdleTimer() already left cinema; schedule re-entry after idle.
             let captured = token
             Task {
                 try? await Task.sleep(nanoseconds: UInt64(LydMotion.cinemaIdleSeconds * 1_000_000_000))
