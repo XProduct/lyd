@@ -66,8 +66,17 @@ namespace FlacPlayer.Remote
         /// <summary>Legacy single output display name.</summary>
         public string OutputDeviceName { get; set; }
 
-        /// <summary>Phase E Apple contract: "host" | "remote" (remote if any Apple device is selected).</summary>
+        /// <summary>
+        /// Phase E Apple contract: "host" | "remote" | "multi"
+        /// (remote = Apple-only; multi = host + at least one Apple device).
+        /// </summary>
         public string OutputTarget { get; set; }
+
+        /// <summary>
+        /// Apple multi-select Playing on set (<c>deviceId</c> + <c>deviceName</c>).
+        /// Preferred over legacy single fields; never empty on the wire.
+        /// </summary>
+        public OutputTargetDto[] OutputTargets { get; set; }
 
         /// <summary>All devices currently selected to render audio (host + Apple players). Never empty.</summary>
         public string[] OutputDeviceIds { get; set; }
@@ -93,6 +102,13 @@ namespace FlacPlayer.Remote
         public string DeviceId { get; set; }
         public string Name { get; set; }
         public bool IsHost { get; set; }
+    }
+
+    /// <summary>Apple multi Playing on entry — property names match Swift <c>PlaybackOutputTargetDto</c>.</summary>
+    public sealed class OutputTargetDto
+    {
+        public string DeviceId { get; set; }
+        public string DeviceName { get; set; }
     }
 
     public sealed class RegisteredPlayerDto
@@ -158,7 +174,13 @@ namespace FlacPlayer.Remote
         public string DeviceId { get; set; }
         public string DeviceName { get; set; }
 
-        /// <summary>Multi-select device ids (preferred). Example: ["host","ipad-1"].</summary>
+        /// <summary>
+        /// Apple multi-select body (preferred): <c>{ "targets": [{ "deviceId", "deviceName" }] }</c>.
+        /// When present (even empty), wins over legacy single-target fields.
+        /// </summary>
+        public OutputTargetDto[] Targets { get; set; }
+
+        /// <summary>Multi-select device ids. Example: ["host","ipad-1"].</summary>
         public string[] DeviceIds { get; set; }
 
         /// <summary>Optional multi-select with display names.</summary>

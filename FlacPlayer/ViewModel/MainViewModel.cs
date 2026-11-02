@@ -1938,10 +1938,18 @@ namespace FlacPlayer.ViewModel
             string[] ids = outputs.Select(o => o.DeviceId).ToArray();
             OutputDeviceDto[] remotes = outputs.Where(o => !o.IsHost).ToArray();
             bool anyRemote = remotes.Length > 0;
+            bool anyHost = outputs.Any(o => o.IsHost);
             // Apple E1 checks outputTarget == "remote" && outputDeviceId == myDeviceId.
             // Prefer a remote id whenever remotes are selected so AVPlayer starts (host may also be selected).
             string legacyId = anyRemote ? remotes[0].DeviceId : "host";
             string legacyName = anyRemote ? remotes[0].Name : RemoteDisplayName;
+            // Apple multi-output: "multi" when host + remote; sticky sync prefers OutputTargets.
+            string outputTarget = anyRemote && anyHost ? "multi" : (anyRemote ? "remote" : "host");
+            OutputTargetDto[] outputTargets = outputs.Select(o => new OutputTargetDto
+            {
+                DeviceId = o.DeviceId,
+                DeviceName = o.Name
+            }).ToArray();
 
             return new PlaybackStateDto
             {
@@ -1955,7 +1963,8 @@ namespace FlacPlayer.ViewModel
                 SessionId = _sessionId,
                 OutputDeviceIds = ids,
                 OutputDevices = outputs,
-                OutputTarget = anyRemote ? "remote" : "host",
+                OutputTargets = outputTargets,
+                OutputTarget = outputTarget,
                 OutputDeviceId = legacyId,
                 OutputDeviceName = legacyName,
                 StreamUrl = streamUrl,
@@ -2107,72 +2116,93 @@ namespace FlacPlayer.ViewModel
 
             if (request != null)
             {
-                bool hasMulti = (request.Devices != null && request.Devices.Length > 0)
-                    || (request.DeviceIds != null && request.DeviceIds.Length > 0);
-
-                if (hasMulti)
+                // Apple multi-output posts { targets: [{ deviceId, deviceName }] }.
+                // When Targets is present it is authoritative — never ignore and fall back to host-only.
+                if (request.Targets != null)
                 {
-                    if (request.Devices != null)
+                    foreach (OutputTargetDto target in request.Targets)
                     {
-                        foreach (OutputDeviceDto device in request.Devices)
+                        if (target == null || string.IsNullOrWhiteSpace(target.DeviceId))
                         {
-                            if (device == null || string.IsNullOrWhiteSpace(device.DeviceId))
-                            {
-                                continue;
-                            }
-                            string id = NormalizeOutputId(device.DeviceId);
-                            nextIds.Add(id);
-                            if (!string.IsNullOrWhiteSpace(device.Name))
-                            {
-                                nextNames[id] = device.Name.Trim();
-                            }
+                            continue;
                         }
-                    }
-
-                    if (request.DeviceIds != null)
-                    {
-                        foreach (string raw in request.DeviceIds)
+                        string id = NormalizeOutputId(target.DeviceId);
+                        nextIds.Add(id);
+                        if (!string.IsNullOrWhiteSpace(target.DeviceName))
                         {
-                            if (string.IsNullOrWhiteSpace(raw))
-                            {
-                                continue;
-                            }
-                            nextIds.Add(NormalizeOutputId(raw));
+                            nextNames[id] = target.DeviceName.Trim();
                         }
                     }
                 }
-                else if (!string.IsNullOrWhiteSpace(request.Target))
+                else
                 {
-                    // Apple E1: { target: "host"|"remote", deviceId, deviceName }
-                    if (string.Equals(request.Target, "host", StringComparison.OrdinalIgnoreCase))
+                    bool hasMulti = (request.Devices != null && request.Devices.Length > 0)
+                        || (request.DeviceIds != null && request.DeviceIds.Length > 0);
+
+                    if (hasMulti)
                     {
-                        nextIds.Add("host");
-                        nextNames["host"] = string.IsNullOrWhiteSpace(request.DeviceName)
-                            ? RemoteDisplayName
-                            : request.DeviceName.Trim();
-                    }
-                    else
-                    {
-                        // "remote" — exclusive Apple renderer (E1). Multi-select uses deviceIds instead.
-                        if (!string.IsNullOrWhiteSpace(request.DeviceId))
+                        if (request.Devices != null)
                         {
-                            string id = NormalizeOutputId(request.DeviceId);
-                            nextIds.Add(id);
-                            if (!string.IsNullOrWhiteSpace(request.DeviceName))
+                            foreach (OutputDeviceDto device in request.Devices)
                             {
-                                nextNames[id] = request.DeviceName.Trim();
+                                if (device == null || string.IsNullOrWhiteSpace(device.DeviceId))
+                                {
+                                    continue;
+                                }
+                                string id = NormalizeOutputId(device.DeviceId);
+                                nextIds.Add(id);
+                                if (!string.IsNullOrWhiteSpace(device.Name))
+                                {
+                                    nextNames[id] = device.Name.Trim();
+                                }
+                            }
+                        }
+
+                        if (request.DeviceIds != null)
+                        {
+                            foreach (string raw in request.DeviceIds)
+                            {
+                                if (string.IsNullOrWhiteSpace(raw))
+                                {
+                                    continue;
+                                }
+                                nextIds.Add(NormalizeOutputId(raw));
                             }
                         }
                     }
-                }
-                else if (!string.IsNullOrWhiteSpace(request.DeviceId))
-                {
-                    // Legacy single-device body without target.
-                    string id = NormalizeOutputId(request.DeviceId);
-                    nextIds.Add(id);
-                    if (!string.IsNullOrWhiteSpace(request.DeviceName))
+                    else if (!string.IsNullOrWhiteSpace(request.Target))
                     {
-                        nextNames[id] = request.DeviceName.Trim();
+                        // Apple E1: { target: "host"|"remote", deviceId, deviceName }
+                        if (string.Equals(request.Target, "host", StringComparison.OrdinalIgnoreCase))
+                        {
+                            nextIds.Add("host");
+                            nextNames["host"] = string.IsNullOrWhiteSpace(request.DeviceName)
+                                ? RemoteDisplayName
+                                : request.DeviceName.Trim();
+                        }
+                        else
+                        {
+                            // "remote" — exclusive Apple renderer (E1).
+                            if (!string.IsNullOrWhiteSpace(request.DeviceId))
+                            {
+                                string id = NormalizeOutputId(request.DeviceId);
+                                nextIds.Add(id);
+                                if (!string.IsNullOrWhiteSpace(request.DeviceName))
+                                {
+                                    nextNames[id] = request.DeviceName.Trim();
+                                }
+                            }
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(request.DeviceId))
+                    {
+                        // Legacy single-device body without target.
+                        string id = NormalizeOutputId(request.DeviceId);
+                        nextIds.Add(id);
+                        if (!string.IsNullOrWhiteSpace(request.DeviceName))
+                        {
+                            nextNames[id] = request.DeviceName.Trim();
+                        }
                     }
                 }
             }
