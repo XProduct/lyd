@@ -185,7 +185,7 @@ struct NowPlayingView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .scrollContentBackground(.hidden)
+                    // Keep ScrollView dark; `.scrollContentBackground` is iOS-only.
                     .background(LydTheme.nowPlayingBackground)
                 }
             }
