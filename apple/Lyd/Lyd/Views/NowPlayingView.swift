@@ -2,14 +2,26 @@ import SwiftUI
 
 struct NowPlayingView: View {
     @EnvironmentObject private var session: LydSession
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scrubPosition: Double = 0
     @State private var isScrubbing = false
     @State private var volumeDraft: Double = 0.5
+    #if os(tvOS)
+    @State private var cinemaMode = false
+    @State private var idleReset = UUID()
+    #endif
 
     private var song: SongDto? { session.playback.currentSong }
     private var duration: Double { Double(max(session.playback.durationMs, 0)) }
     private var position: Double {
         isScrubbing ? scrubPosition : Double(max(session.playback.positionMs, 0))
+    }
+    private var progressFraction: Double {
+        guard duration > 0 else { return 0 }
+        return min(max(position / duration, 0), 1)
+    }
+    private var washColor: Color {
+        LydMotion.washColor(for: song?.albumId ?? song?.id)
     }
 
     var body: some View {
@@ -125,34 +137,100 @@ struct NowPlayingView: View {
     #if os(tvOS)
     private var tvOSBody: some View {
         GeometryReader { geo in
-            // Full primary viewport + nearly another screen of empty scroll before "More".
             let secondaryOffset = max(geo.size.height * 0.9, 700)
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 0) {
-                    tvOSPrimaryPage
+            ZStack {
+                ambientWash
+                    .ignoresSafeArea()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Group {
+                            if cinemaMode {
+                                tvOSCinemaPage
+                            } else {
+                                tvOSPrimaryPage
+                            }
+                        }
                         .frame(minHeight: max(geo.size.height, 720))
                         .padding(.horizontal, 48)
                         .padding(.top, 12)
                         .padding(.bottom, 12)
 
-                    Color.clear
-                        .frame(height: secondaryOffset)
-                        .accessibilityHidden(true)
+                        if !cinemaMode {
+                            Color.clear
+                                .frame(height: secondaryOffset)
+                                .accessibilityHidden(true)
 
-                    tvOSSecondarySection
-                        .padding(.horizontal, 48)
-                        .padding(.bottom, 80)
+                            tvOSSecondarySection
+                                .padding(.horizontal, 48)
+                                .padding(.bottom, 80)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .scrollDisabled(cinemaMode)
             }
         }
         .background(LydTheme.nowPlayingBackground.ignoresSafeArea())
         .scrollableNavigationTitle()
         .safeAreaInset(edge: .top, spacing: 0) {
-            HostOfflineBanner()
+            if !cinemaMode {
+                HostOfflineBanner()
+            }
         }
-        .onAppear { volumeDraft = session.playback.volume }
+        .onAppear {
+            volumeDraft = session.playback.volume
+            bumpIdleTimer()
+        }
+        .onChange(of: session.playback.currentSongId) { _, _ in
+            bumpIdleTimer()
+        }
+        .onChange(of: session.playback.isPlaying) { _, _ in
+            bumpIdleTimer()
+        }
+        .onChange(of: idleReset) { _, token in
+            guard !reduceMotion else {
+                cinemaMode = false
+                return
+            }
+            cinemaMode = false
+            let captured = token
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(LydMotion.cinemaIdleSeconds * 1_000_000_000))
+                guard !Task.isCancelled, captured == idleReset else { return }
+                guard session.playback.isPlaying else { return }
+                withAnimation(.easeInOut(duration: 0.6)) {
+                    cinemaMode = true
+                }
+            }
+        }
+        .onExitCommand {
+            if cinemaMode {
+                bumpIdleTimer()
+            }
+        }
+        .simultaneousGesture(
+            TapGesture().onEnded { bumpIdleTimer() }
+        )
+    }
+
+    private var ambientWash: some View {
+        RadialGradient(
+            colors: [
+                washColor.opacity(cinemaMode ? 0.55 : 0.38),
+                washColor.opacity(0.12),
+                LydTheme.nowPlayingBackground
+            ],
+            center: .center,
+            startRadius: 40,
+            endRadius: cinemaMode ? 900 : 700
+        )
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: LydMotion.washDuration),
+            value: song?.albumId ?? song?.id
+        )
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: cinemaMode)
     }
 
     /// Art + metadata + main transport — first screen; no seek / shuffle / volume.
@@ -160,49 +238,108 @@ struct NowPlayingView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollablePageTitle(title: "Now Playing")
                 .padding(.bottom, 8)
+                .opacity(cinemaMode ? 0 : 1)
 
-            // Center cover + right column in the remaining viewport under the title.
             HStack(alignment: .center, spacing: 48) {
-                CoverImage(url: coverURL)
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(maxWidth: 520)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .shadow(color: .black.opacity(0.55), radius: 28, y: 16)
-                    .accessibilityHidden(true)
+                coverArtBlock(maxWidth: 520)
 
-                // Intrinsic height so HStack centers this block against the cover.
                 VStack(alignment: .leading, spacing: 28) {
                     metadataBlock(centered: false)
+                        .id(song?.id ?? "none")
+                        .transition(reduceMotion ? .identity : .opacity)
+                        .animation(
+                            reduceMotion ? nil : .easeInOut(duration: LydMotion.crossfadeDuration),
+                            value: song?.id
+                        )
 
                     progressReadout
 
                     transportRow
                         .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let next = nextUpSong, progressFraction >= 0.82 {
+                        nextUpPeek(next)
+                            .transition(reduceMotion ? .identity : .move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: progressFraction >= 0.82)
         }
     }
 
-    /// Elapsed / duration + progress — display only (not seekable).
+    /// Idle cinema: large art + metadata; chrome faded (Phase D #9).
+    private var tvOSCinemaPage: some View {
+        VStack(spacing: 36) {
+            Spacer(minLength: 0)
+            coverArtBlock(maxWidth: 640)
+                .frame(maxWidth: 640)
+            metadataBlock(centered: true)
+                .id(song?.id ?? "none")
+            progressReadout
+                .frame(maxWidth: 640)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture { bumpIdleTimer() }
+    }
+
+    private func coverArtBlock(maxWidth: CGFloat) -> some View {
+        CrossfadeValue(value: song?.id ?? "none", reduceMotion: reduceMotion) { _ in
+            CoverImage(url: coverURL, morphID: song?.albumId)
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: maxWidth)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .shadow(color: washColor.opacity(0.55), radius: 28, y: 16)
+                .lydBreathing(isPlaying: session.playback.isPlaying, reduceMotion: reduceMotion)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// Elapsed / duration + eased progress — display only (not seekable).
     private var progressReadout: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ProgressView(value: duration > 0 ? position / duration : 0)
-                .tint(LydTheme.primary)
-                .scaleEffect(x: 1, y: 2, anchor: .center)
+            EasedProgressBar(progress: progressFraction, reduceMotion: reduceMotion, tint: washColor)
                 .accessibilityLabel("Playback progress")
                 .accessibilityValue("\(format(ms: Int64(position))) of \(format(ms: Int64(duration)))")
 
             HStack {
-                Text(format(ms: Int64(position)))
+                CrossfadeTimeLabel(milliseconds: Int64(position), reduceMotion: reduceMotion)
                 Spacer()
-                Text(format(ms: Int64(duration)))
+                CrossfadeTimeLabel(milliseconds: Int64(duration), reduceMotion: reduceMotion)
             }
-            .font(.title3.monospacedDigit())
-            .foregroundStyle(Color.secondary)
         }
         .allowsHitTesting(false)
+    }
+
+    private var nextUpSong: SongDto? {
+        session.predictedNextSong(after: song)
+    }
+
+    private func nextUpPeek(_ next: SongDto) -> some View {
+        HStack(spacing: 16) {
+            CoverImage(url: nextCoverURL(for: next))
+                .frame(width: 72, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Next")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.secondary)
+                Text(next.displayTitle)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(1)
+                Text(next.displayArtist)
+                    .font(.body)
+                    .foregroundStyle(Color.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     /// Shuffle, volume, and host status — reached by scrolling down.
@@ -218,6 +355,7 @@ struct NowPlayingView: View {
                 systemImage: "shuffle",
                 emphasized: session.playback.shuffle
             ) {
+                bumpIdleTimer()
                 Task { await session.toggleShuffle() }
             }
 
@@ -226,6 +364,7 @@ struct NowPlayingView: View {
                     .font(.title3)
                     .foregroundStyle(Color.secondary)
                 TVNowPlayingButton(title: "Down", systemImage: "speaker.wave.1.fill") {
+                    bumpIdleTimer()
                     Task { await session.setVolume(max(0, session.playback.volume - 0.05)) }
                 }
                 Text("\(Int((session.playback.volume * 100).rounded()))%")
@@ -233,6 +372,7 @@ struct NowPlayingView: View {
                     .foregroundStyle(Color.primary)
                     .frame(minWidth: 72, alignment: .center)
                 TVNowPlayingButton(title: "Up", systemImage: "speaker.wave.3.fill") {
+                    bumpIdleTimer()
                     Task { await session.setVolume(min(1, session.playback.volume + 0.05)) }
                 }
             }
@@ -256,6 +396,19 @@ struct NowPlayingView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func bumpIdleTimer() {
+        cinemaMode = false
+        idleReset = UUID()
+    }
+
+    private func nextCoverURL(for song: SongDto) -> URL? {
+        guard let albumId = song.albumId else { return nil }
+        if let album = session.library.albums.first(where: { $0.id == albumId }) {
+            return session.coverURL(for: album)
+        }
+        return session.clientCoverFallback(albumId: albumId)
     }
     #endif
 
@@ -309,6 +462,7 @@ struct NowPlayingView: View {
     private var transportRow: some View {
         HStack(spacing: 36) {
             Button {
+                noteUserActivity()
                 Task { await session.previous() }
             } label: {
                 Image(systemName: "backward.fill")
@@ -318,6 +472,7 @@ struct NowPlayingView: View {
             }
 
             Button {
+                noteUserActivity()
                 Task { await session.playPause() }
             } label: {
                 Image(systemName: session.playback.isPlaying ? "pause.circle.fill" : "play.circle.fill")
@@ -326,6 +481,7 @@ struct NowPlayingView: View {
             }
 
             Button {
+                noteUserActivity()
                 Task { await session.next() }
             } label: {
                 Image(systemName: "forward.fill")
@@ -335,6 +491,12 @@ struct NowPlayingView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private func noteUserActivity() {
+        #if os(tvOS)
+        bumpIdleTimer()
+        #endif
     }
 
     @ViewBuilder
