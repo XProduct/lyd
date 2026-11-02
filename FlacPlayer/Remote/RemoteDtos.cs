@@ -57,11 +57,32 @@ namespace FlacPlayer.Remote
         /// <summary>Stable session id for this host process (one session per host in v1).</summary>
         public string SessionId { get; set; }
 
-        /// <summary>"host" or a remote player device id.</summary>
+        /// <summary>
+        /// Legacy single output id. When remotes are selected, prefer a remote id so Apple
+        /// ``outputDeviceId == myDeviceId`` checks succeed; use <see cref="OutputDeviceIds"/> for multi.
+        /// </summary>
         public string OutputDeviceId { get; set; }
 
-        /// <summary>Display name for the current output target.</summary>
+        /// <summary>Legacy single output display name.</summary>
         public string OutputDeviceName { get; set; }
+
+        /// <summary>
+        /// Phase E Apple contract: "host" | "remote" | "multi"
+        /// (remote = Apple-only; multi = host + at least one Apple device).
+        /// </summary>
+        public string OutputTarget { get; set; }
+
+        /// <summary>
+        /// Apple multi-select Playing on set (<c>deviceId</c> + <c>deviceName</c>).
+        /// Preferred over legacy single fields; never empty on the wire.
+        /// </summary>
+        public OutputTargetDto[] OutputTargets { get; set; }
+
+        /// <summary>All devices currently selected to render audio (host + Apple players). Never empty.</summary>
+        public string[] OutputDeviceIds { get; set; }
+
+        /// <summary>Selected outputs with display names — who is (allowed to be) playing.</summary>
+        public OutputDeviceDto[] OutputDevices { get; set; }
 
         /// <summary>Relative stream URL for the current song, when available.</summary>
         public string StreamUrl { get; set; }
@@ -71,6 +92,23 @@ namespace FlacPlayer.Remote
         /// when this value changes (command fan-out via shared session poll).
         /// </summary>
         public long TransportSeq { get; set; }
+
+        /// <summary>Bumped on seek / track start so Apple AVPlayer re-seeks (Phase E Apple field).</summary>
+        public long SeekGeneration { get; set; }
+    }
+
+    public sealed class OutputDeviceDto
+    {
+        public string DeviceId { get; set; }
+        public string Name { get; set; }
+        public bool IsHost { get; set; }
+    }
+
+    /// <summary>Apple multi Playing on entry — property names match Swift <c>PlaybackOutputTargetDto</c>.</summary>
+    public sealed class OutputTargetDto
+    {
+        public string DeviceId { get; set; }
+        public string DeviceName { get; set; }
     }
 
     public sealed class RegisteredPlayerDto
@@ -96,6 +134,8 @@ namespace FlacPlayer.Remote
         public string DeviceId { get; set; }
         /// <summary>Optional position report from the rendering Apple player.</summary>
         public long? PositionMs { get; set; }
+        public long? DurationMs { get; set; }
+        public string SongId { get; set; }
         public bool? IsPlaying { get; set; }
     }
 
@@ -124,11 +164,26 @@ namespace FlacPlayer.Remote
         public bool? Enabled { get; set; }
     }
 
-    /// <summary>POST /api/v1/playback/output — where audio should render.</summary>
+    /// <summary>POST /api/v1/playback/output — explicit multi-select of who renders audio.</summary>
     public sealed class OutputRequest
     {
-        /// <summary>"host" for Windows irrKlang, or a client device id for Apple AVPlayer.</summary>
+        /// <summary>Apple E1 field: "host" | "remote".</summary>
+        public string Target { get; set; }
+
+        /// <summary>Legacy / Apple single id ("host" or a client device id).</summary>
         public string DeviceId { get; set; }
         public string DeviceName { get; set; }
+
+        /// <summary>
+        /// Apple multi-select body (preferred): <c>{ "targets": [{ "deviceId", "deviceName" }] }</c>.
+        /// When present (even empty), wins over legacy single-target fields.
+        /// </summary>
+        public OutputTargetDto[] Targets { get; set; }
+
+        /// <summary>Multi-select device ids. Example: ["host","ipad-1"].</summary>
+        public string[] DeviceIds { get; set; }
+
+        /// <summary>Optional multi-select with display names.</summary>
+        public OutputDeviceDto[] Devices { get; set; }
     }
 }

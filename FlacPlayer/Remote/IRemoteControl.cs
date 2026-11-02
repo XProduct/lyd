@@ -18,8 +18,8 @@ namespace FlacPlayer.Remote
         void SetShuffle(bool? enabled);
         void Seek(long positionMs);
         void SetVolume(double level);
-        /// <summary>Set where audio renders: "host" or a remote device id (E1).</summary>
-        void SetOutput(string deviceId, string deviceName);
+        /// <summary>Set the multi-select output set (host and/or registered Apple players).</summary>
+        void SetOutput(OutputRequest request);
         /// <summary>Apple player position/playing report while it is the output device.</summary>
         void ReportPlayerHeartbeat(string deviceId, long? positionMs, bool? isPlaying);
         IList<RegisteredPlayerDto> ListPlayers();
