@@ -112,6 +112,13 @@ namespace FlacPlayer.Remote
         /// Use offset-corrected now for desiredMs = PositionAtAnchorMs + (correctedNow − AnchorUnixMs).
         /// </summary>
         public long ServerUnixMs { get; set; }
+
+        /// <summary>
+        /// Desktop setting: multi-room Playing on. Default false.
+        /// When false, host collapses multi-target output to one device; remotes must not render
+        /// unless their id is in <see cref="OutputDeviceIds"/> / <see cref="OutputTargets"/>.
+        /// </summary>
+        public bool AllowMultiOutput { get; set; }
     }
 
     public sealed class OutputDeviceDto

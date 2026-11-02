@@ -241,7 +241,12 @@ namespace FlacPlayer.Remote
 
                 if (method == "GET" && path == "/api/v1/players")
                 {
-                    WriteJson(context, 200, new { players = _control.ListPlayers() });
+                    PlaybackStateDto state = _control.GetPlaybackState();
+                    WriteJson(context, 200, new
+                    {
+                        players = _control.ListPlayers(),
+                        AllowMultiOutput = state != null && state.AllowMultiOutput
+                    });
                     return;
                 }
 

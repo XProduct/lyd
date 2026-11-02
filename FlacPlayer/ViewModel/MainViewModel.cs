@@ -2142,7 +2142,8 @@ namespace FlacPlayer.ViewModel
                 AnchorUnixMs = _anchorUnixMs,
                 PositionAtAnchorMs = _positionAtAnchorMs,
                 // Fresh host UTC each response — sticky anchors stay in _anchorUnixMs / _positionAtAnchorMs.
-                ServerUnixMs = UnixUtcNowMs()
+                ServerUnixMs = UnixUtcNowMs(),
+                AllowMultiOutput = _allowMultiOutput
             };
         }
 
@@ -2391,9 +2392,20 @@ namespace FlacPlayer.ViewModel
                 nextIds.Add("host");
             }
 
+            // Hard gate: remotes cannot bypass desktop AllowMultiOutput via API multi-select.
             if (!AllowMultiOutput && nextIds.Count > 1)
             {
                 CollapseIdsToSingle(nextIds, nextNames, preferExisting: true);
+            }
+
+            if (!AllowMultiOutput && nextIds.Count > 1)
+            {
+                // Defensive: collapse must leave exactly one id.
+                string keep = nextIds.Contains("host")
+                    ? "host"
+                    : nextIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).First();
+                nextIds.Clear();
+                nextIds.Add(keep);
             }
 
             if (!nextNames.ContainsKey("host") && nextIds.Contains("host"))
