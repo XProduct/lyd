@@ -34,7 +34,7 @@ struct SettingsView: View {
                     Text(message)
                         .foregroundStyle(.red)
                     if let last = HostPreferences.lastSelection {
-                        Button("Retry \(last.host):\(last.port)") {
+                        TVContrastButton("Retry \(last.host):\(last.port)") {
                             session.reconnectLastIfPossible()
                         }
                     }
@@ -55,26 +55,7 @@ struct SettingsView: View {
                     .padding(.vertical, 4)
                 } else {
                     ForEach(session.browser.hosts) { host in
-                        Button {
-                            session.connect(to: host)
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(host.displayTitle)
-                                        .font(.headline)
-                                        .foregroundStyle(Color.primary)
-                                    Text(host.endpointLabel)
-                                        .font(.subheadline)
-                                        .foregroundStyle(Color.secondary)
-                                }
-                                Spacer()
-                                if session.phase == .connected,
-                                   session.selectedEndpoint == host.endpointLabel {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(LydTheme.primary)
-                                }
-                            }
-                        }
+                        DiscoveredHostButton(host: host)
                     }
                 }
             } header: {
@@ -83,11 +64,8 @@ struct SettingsView: View {
 
             #if os(tvOS)
             Section {
-                Button {
+                TVContrastButton("Refresh discovery") {
                     session.startDiscovery()
-                } label: {
-                    Text("Refresh discovery")
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             #endif
@@ -103,7 +81,7 @@ struct SettingsView: View {
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
-                Button("Connect") {
+                TVContrastButton("Connect") {
                     connectManual()
                 }
                 .disabled(!canConnectManual)
@@ -117,8 +95,6 @@ struct SettingsView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.visible, for: .navigationBar)
-        #endif
-        #if os(iOS)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -151,5 +127,95 @@ struct SettingsView: View {
         guard let port = Int(manualPort) else { return }
         let host = HostAddress.normalize(manualHost)
         session.connect(manual: ManualHost(host: host, port: port))
+    }
+}
+
+// MARK: - tvOS focus-safe controls
+
+private struct DiscoveredHostButton: View {
+    @EnvironmentObject private var session: LydSession
+    let host: DiscoveredHost
+    #if os(tvOS)
+    @FocusState private var isFocused: Bool
+    #endif
+
+    var body: some View {
+        Button {
+            session.connect(to: host)
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(host.displayTitle)
+                        .font(.headline)
+                        .foregroundStyle(titleColor)
+                    Text(host.endpointLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(subtitleColor)
+                }
+                Spacer()
+                if session.phase == .connected,
+                   session.selectedEndpoint == host.endpointLabel {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(checkmarkColor)
+                }
+            }
+            #if os(tvOS)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            #endif
+        }
+        #if os(tvOS)
+        .focused($isFocused)
+        #endif
+    }
+
+    private var titleColor: Color {
+        #if os(tvOS)
+        isFocused ? Color.black : Color.primary
+        #else
+        Color.primary
+        #endif
+    }
+
+    private var subtitleColor: Color {
+        #if os(tvOS)
+        isFocused ? Color.black.opacity(0.65) : Color.secondary
+        #else
+        Color.secondary
+        #endif
+    }
+
+    private var checkmarkColor: Color {
+        #if os(tvOS)
+        isFocused ? Color.black : LydTheme.primary
+        #else
+        LydTheme.primary
+        #endif
+    }
+}
+
+/// Plain-title button that flips to dark text on the tvOS light focus plate.
+private struct TVContrastButton: View {
+    let title: String
+    let action: () -> Void
+    #if os(tvOS)
+    @FocusState private var isFocused: Bool
+    #endif
+
+    init(_ title: String, action: @escaping () -> Void) {
+        self.title = title
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                #if os(tvOS)
+                .foregroundStyle(isFocused ? Color.black : Color.primary)
+                #endif
+        }
+        #if os(tvOS)
+        .focused($isFocused)
+        #endif
     }
 }
