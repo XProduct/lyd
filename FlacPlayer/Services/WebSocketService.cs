@@ -53,12 +53,29 @@ namespace FlacPlayer
                 _settings.Port = 8080;
             }
 
-            // First-run: ask to elevate for URL ACL + firewall so LAN clients can connect.
-            if (!_settings.FirewallConfigured)
+            // First-run (or port change): one prompt for inbound TCP API + UDP 5353 mDNS.
+            // Persist FirewallPrompted even on decline so we do not spam every launch.
+            // Legacy: older builds only set FirewallConfigured — treat that as already prompted.
+            if (_settings.FirewallConfigured && !_settings.FirewallPrompted)
             {
-                bool configured = false;
-                FirewallHelper.EnsureAccess(_settings.Port, ref configured);
-                _settings.FirewallConfigured = configured;
+                _settings.FirewallPrompted = true;
+                _settings.FirewallPromptedPort = _settings.Port;
+                _settings.Save();
+            }
+
+            bool needsFirewallPrompt = !_settings.FirewallPrompted
+                || _settings.FirewallPromptedPort != _settings.Port;
+
+            if (needsFirewallPrompt)
+            {
+                bool userAccepted;
+                bool configured = FirewallHelper.EnsureAccess(_settings.Port, out userAccepted);
+                _settings.FirewallPrompted = true;
+                _settings.FirewallPromptedPort = _settings.Port;
+                if (configured)
+                {
+                    _settings.FirewallConfigured = true;
+                }
                 _settings.Save();
             }
 
@@ -66,18 +83,13 @@ namespace FlacPlayer
             _api.Start(_settings.Port);
 
             bool lanBound = _api.BoundPrefix != null && _api.BoundPrefix.Contains("://+:");
-            if (!lanBound && !_settings.FirewallConfigured)
+            // If the user accepted elevation but bind is still localhost-only, retry start once
+            // without showing another MessageBox (rules may have landed after first Start).
+            if (!lanBound && _settings.FirewallConfigured)
             {
-                // Offer elevation once more if we only got localhost and user skipped earlier.
-                bool configured = false;
-                if (FirewallHelper.EnsureAccess(_settings.Port, ref configured))
-                {
-                    _settings.FirewallConfigured = true;
-                    _settings.Save();
-                    _api.Stop();
-                    _api.Start(_settings.Port);
-                    lanBound = _api.BoundPrefix != null && _api.BoundPrefix.Contains("://+:");
-                }
+                _api.Stop();
+                _api.Start(_settings.Port);
+                lanBound = _api.BoundPrefix != null && _api.BoundPrefix.Contains("://+:");
             }
 
             string host = Environment.MachineName;
@@ -129,7 +141,10 @@ namespace FlacPlayer
             }
             Stop();
             _settings.Port = port;
+            // New port needs its own URL ACL + firewall rule; allow one fresh prompt.
             _settings.FirewallConfigured = false;
+            _settings.FirewallPrompted = false;
+            _settings.FirewallPromptedPort = 0;
             _settings.Save();
             Start();
         }

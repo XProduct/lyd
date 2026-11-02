@@ -7,6 +7,14 @@ namespace FlacPlayer.Remote
     public sealed class RemoteHostSettings
     {
         public int Port { get; set; } = 8080;
+
+        /// <summary>True after the one-time firewall/URL ACL dialog was shown (Yes or No).</summary>
+        public bool FirewallPrompted { get; set; }
+
+        /// <summary>Port for which <see cref="FirewallPrompted"/> applies; changing Port re-prompts.</summary>
+        public int FirewallPromptedPort { get; set; }
+
+        /// <summary>True when elevated rules were applied successfully.</summary>
         public bool FirewallConfigured { get; set; }
 
         private static string SettingsPath
