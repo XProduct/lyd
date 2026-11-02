@@ -1,5 +1,6 @@
 ﻿using GalaSoft.MvvmLight;
 using FlacPlayer.Model;
+using FlacPlayer.Remote;
 using System.Windows.Input;
 using GalaSoft.MvvmLight.Command;
 using System.Drawing;
@@ -12,6 +13,7 @@ using System.Linq;
 using System.Windows.Media.Imaging;
 using System.Threading;
 using System.Windows;
+using System.IO;
 
 namespace FlacPlayer.ViewModel
 {
@@ -22,6 +24,7 @@ namespace FlacPlayer.ViewModel
         private readonly IDataService DataService;
         private readonly IPlayer Player;
         private readonly IWebSocketService WebSocketService;
+        private int _libraryRevision;
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
@@ -56,27 +59,19 @@ namespace FlacPlayer.ViewModel
             // Event Listeners
             StartSongPositionListener();
 
-            // Start Web Socket
-            LydRemoteInstructions = "Lyd Remote is Starting...";
-            WebSocketService.Start();
-            LydRemoteInstructions = "Visit \"" + DataService.GetLocalIPAddress() + ":8080\" in a web browser to use Lyd Remote";
-
-            // Attach Event Handler For Web Service
-            HtmlData.PlaySong += (obj, x) =>
+            // LAN remote API + mDNS
+            RemotePort = WebSocketService.Port > 0 ? WebSocketService.Port : 8080;
+            LydRemoteInstructions = "Lyd Remote is starting...";
+            WebSocketService.SetControl(new MainRemoteControl(this));
+            try
             {
-                Song song = Songs.Where(s => s.ID == x).FirstOrDefault();
-                PlayOnDemand(song);
-            };
-
-            HtmlData.ShufflePlay += (obj, e) =>
+                WebSocketService.Start();
+                LydRemoteInstructions = WebSocketService.DiscoverabilityHint;
+            }
+            catch (Exception ex)
             {
-                Shuffle();
-            };
-
-            HtmlData.PlayPause += (obj, e) =>
-            {
-                TogglePlayPause();
-            };
+                LydRemoteInstructions = "Remote API failed to start: " + ex.Message;
+            }
         }
 
         #endregion
@@ -1110,7 +1105,7 @@ namespace FlacPlayer.ViewModel
                 RaisePropertyChanging(SongsPropertyName);
                 _Songs = value;
                 RaisePropertyChanged(SongsPropertyName);
-                HtmlData.Songs = Songs.ToList();
+                BumpLibraryRevision();
             }
         }
 
@@ -1269,10 +1264,25 @@ namespace FlacPlayer.ViewModel
 
                 Songs.ToList().ForEach(song => { song.IsCurrentlyPlaying = false; });
                 _currentPlayingSong.IsCurrentlyPlaying = true;
-
-                // Update Html Data
-                HtmlData.CurrentSong = _currentPlayingSong;
             }
+        }
+
+        /// <summary>Remote API port (Settings override).</summary>
+        public int RemotePort
+        {
+            get { return _remotePort; }
+            set
+            {
+                if (_remotePort == value) return;
+                _remotePort = value;
+                RaisePropertyChanged(nameof(RemotePort));
+            }
+        }
+        private int _remotePort = 8080;
+
+        public string RemoteDisplayName
+        {
+            get { return "Lyd on " + Environment.MachineName; }
         }
 
         #endregion
@@ -1479,23 +1489,37 @@ namespace FlacPlayer.ViewModel
         {
             foreach (Song song in Songs)
             {
-                Album existingAlbum = Albums.Where(x => x.Title == song.Album).FirstOrDefault();
+                string albumId = AlbumIdHelper.From(song.Artist, song.Album);
+                song.AlbumId = albumId;
+
+                Album existingAlbum = Albums.FirstOrDefault(x => x.Id == albumId || x.Title == song.Album);
 
                 if (existingAlbum == null)
                 {
-                    App.Current.Dispatcher.Invoke((Action)delegate // <--- HERE
+                    App.Current.Dispatcher.Invoke((Action)delegate
                     {
                         Albums.Add(new Album()
                         {
+                            Id = albumId,
                             Title = song.Album,
                             Artist = song.Artist,
+                            CoverSourcePath = song.Path,
                             CoverArt = DataService.GetAlbumImage(song.Path)
                         });
                     });
                 }
+                else if (string.IsNullOrEmpty(existingAlbum.Id))
+                {
+                    existingAlbum.Id = albumId;
+                    if (string.IsNullOrEmpty(existingAlbum.CoverSourcePath))
+                    {
+                        existingAlbum.CoverSourcePath = song.Path;
+                    }
+                }
             }
 
             Albums.OrderBy(s => s.Title.StartsWith("A ", StringComparison.OrdinalIgnoreCase) || s.Title.StartsWith("The ", StringComparison.OrdinalIgnoreCase) ? s.Title.Substring(s.Title.IndexOf(" ") + 1) : s.Title);
+            BumpLibraryRevision();
         }
 
         private void RefreshSongs()
@@ -1530,7 +1554,19 @@ namespace FlacPlayer.ViewModel
 
         private void SaveSettings()
         {
-            //DataService.SetSavedSearchFolders(new ObservableCollection<string> { MusicSearchPath });
+            try
+            {
+                if (RemotePort > 0 && RemotePort <= 65535 && RemotePort != WebSocketService.Port)
+                {
+                    WebSocketService.ApplyPort(RemotePort);
+                    LydRemoteInstructions = WebSocketService.DiscoverabilityHint;
+                }
+            }
+            catch (Exception ex)
+            {
+                LydRemoteInstructions = "Failed to apply remote port: " + ex.Message;
+            }
+
             RefreshSongs();
             SelectedMenuItem = "Songs";
         }
@@ -1589,6 +1625,155 @@ namespace FlacPlayer.ViewModel
             IsShuffleMode = true;
             AddSongsToQueue();
             PlayNextSong();
+        }
+
+        private void PlayPreviousSong()
+        {
+            PercentageComplete = 0;
+            if (CurrentSongIndex > 0 && CurrentPlayQueue != null && CurrentPlayQueue.Count > 0)
+            {
+                CurrentSongIndex = CurrentSongIndex - 1;
+                Player.Play(CurrentPlayQueue[CurrentSongIndex].Path);
+                UpdateCurrentSong(CurrentPlayQueue[CurrentSongIndex]);
+                GetSongDuration();
+            }
+            RaisePropertyChanged(nameof(IsPlaying));
+        }
+
+        private void BumpLibraryRevision()
+        {
+            Interlocked.Increment(ref _libraryRevision);
+        }
+
+        public LibraryDto BuildRemoteLibrary()
+        {
+            var songs = Songs.Select(MapSongDto).ToList();
+            var albums = Albums.Select(a =>
+            {
+                string id = a.Id ?? AlbumIdHelper.From(a.Artist, a.Title);
+                return new AlbumDto
+                {
+                    Id = id,
+                    Title = a.Title,
+                    Artist = a.Artist,
+                    SongIds = Songs.Where(s => (s.AlbumId ?? AlbumIdHelper.From(s.Artist, s.Album)) == id).Select(s => s.ID).ToList(),
+                    CoverUrl = "/api/v1/albums/" + id + "/cover"
+                };
+            }).ToList();
+
+            return new LibraryDto
+            {
+                Songs = songs,
+                Albums = albums,
+                Revision = _libraryRevision
+            };
+        }
+
+        public PlaybackStateDto BuildRemotePlaybackState()
+        {
+            long position = Player.GetCurrentSongPlayTime();
+            if (position < 0) position = 0;
+            long duration = 0;
+            try { duration = Player.GetCurrentSongDuration(); } catch { }
+
+            return new PlaybackStateDto
+            {
+                IsPlaying = Player.IsPlaying(),
+                Shuffle = IsShuffleMode,
+                PositionMs = position,
+                DurationMs = duration,
+                CurrentSongId = CurrentPlayingSong != null ? CurrentPlayingSong.ID : null,
+                CurrentSong = CurrentPlayingSong != null && !string.IsNullOrEmpty(CurrentPlayingSong.Path) ? MapSongDto(CurrentPlayingSong) : null,
+                Volume = Player.GetVolume()
+            };
+        }
+
+        public void RemotePlaySong(string songId)
+        {
+            Song song = Songs.FirstOrDefault(s => s.ID == songId);
+            PlayOnDemand(song);
+        }
+
+        public void RemotePause() { Pause(); RaisePropertyChanged(nameof(IsPlaying)); }
+        public void RemotePlayPause() { TogglePlayPause(); }
+        public void RemoteNext() { PlayNextSong(); }
+        public void RemotePrevious() { PlayPreviousSong(); }
+
+        public void RemoteSetShuffle(bool? enabled)
+        {
+            if (enabled.HasValue)
+            {
+                IsShuffleMode = enabled.Value;
+                AddSongsToQueue();
+            }
+            else
+            {
+                ToggleShuffle();
+            }
+        }
+
+        public void RemoteSeek(long positionMs)
+        {
+            if (positionMs < 0) positionMs = 0;
+            Player.SetPlayPosition((int)(positionMs / 1000));
+        }
+
+        public void RemoteSetVolume(double level)
+        {
+            Player.SetVolume(level);
+        }
+
+        public bool TryGetRemoteAlbumCover(string albumId, out byte[] bytes, out string contentType)
+        {
+            bytes = null;
+            contentType = "image/jpeg";
+            Album album = Albums.FirstOrDefault(a => a.Id == albumId);
+            string path = album != null ? album.CoverSourcePath : null;
+            if (string.IsNullOrEmpty(path))
+            {
+                Song song = Songs.FirstOrDefault(s => (s.AlbumId ?? AlbumIdHelper.From(s.Artist, s.Album)) == albumId);
+                path = song != null ? song.Path : null;
+            }
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                return false;
+            }
+
+            try
+            {
+                using (TagLib.File file = TagLib.File.Create(path))
+                {
+                    if (file != null && file.Tag.Pictures != null && file.Tag.Pictures.Length > 0)
+                    {
+                        var pic = file.Tag.Pictures[0];
+                        bytes = pic.Data.Data;
+                        if (!string.IsNullOrEmpty(pic.MimeType))
+                        {
+                            contentType = pic.MimeType;
+                        }
+                        return bytes != null && bytes.Length > 0;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
+        private static SongDto MapSongDto(Song song)
+        {
+            return new SongDto
+            {
+                Id = song.ID,
+                Title = song.Title,
+                Artist = song.Artist,
+                Album = song.Album,
+                AlbumId = song.AlbumId ?? AlbumIdHelper.From(song.Artist, song.Album),
+                Track = song.Track,
+                Disc = song.Disc,
+                DurationMs = null
+            };
         }
 
         public override void Cleanup()

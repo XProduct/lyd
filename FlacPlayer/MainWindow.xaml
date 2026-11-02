@@ -272,8 +272,13 @@
             </StackPanel>
 
             <TextBlock Text="Lyd Remote" Grid.Column="1" Grid.Row="5" HorizontalAlignment="Left" FontSize="26" VerticalAlignment="Top" />
-            <TextBlock Text="beta" Grid.Column="1" Grid.Row="5"  FontSize="18" VerticalAlignment="Top" HorizontalAlignment="Right" Foreground="#fff1c40f" />
-            <TextBox Background="Transparent" Text="{Binding LydRemoteInstructions, Mode=OneWay}" IsReadOnly="True" Grid.Column="3" Grid.Row="5" BorderThickness="0" Foreground="{StaticResource Foreground}" />
+            <StackPanel Grid.Column="3" Grid.Row="5">
+                <TextBox Background="Transparent" Text="{Binding LydRemoteInstructions, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Foreground="{StaticResource Foreground}" />
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <TextBlock Text="API Port" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox Width="72" Text="{Binding RemotePort, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+            </StackPanel>
 
             <Button Content="Save" Grid.Column="3" Grid.Row="7" HorizontalAlignment="Right" Command="{Binding SaveSettingsCommand}" />
         </Grid>

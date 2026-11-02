@@ -84,6 +84,32 @@
     <Reference Include="Microsoft.Practices.ServiceLocation">
       <HintPath>..\packages\CommonServiceLocator.1.0\lib\NET35\Microsoft.Practices.ServiceLocation.dll</HintPath>
     </Reference>
+    <Reference Include="Makaretu.Dns">
+      <HintPath>..\packages\Makaretu.Dns.2.0.1\lib\net472\Makaretu.Dns.dll</HintPath>
+      <Private>True</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="Makaretu.Dns.Multicast">
+      <HintPath>..\packages\Makaretu.Dns.Multicast.0.27.0\lib\net461\Makaretu.Dns.Multicast.dll</HintPath>
+      <Private>True</Private>
+      <SpecificVersion>False</SpecificVersion>
+    </Reference>
+    <Reference Include="SimpleBase, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\SimpleBase.1.3.1\lib\net45\SimpleBase.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Common.Logging, Version=3.4.1.0, Culture=neutral, PublicKeyToken=af08829b84f0328e, processorArchitecture=MSIL">
+      <HintPath>..\packages\Common.Logging.3.4.1\lib\net40\Common.Logging.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="Common.Logging.Core, Version=3.4.1.0, Culture=neutral, PublicKeyToken=af08829b84f0328e, processorArchitecture=MSIL">
+      <HintPath>..\packages\Common.Logging.Core.3.4.1\lib\net40\Common.Logging.Core.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="System.Net.IPNetwork, Version=2.1.2.0, Culture=neutral, PublicKeyToken=7eee65c84826ed83, processorArchitecture=MSIL">
+      <HintPath>..\packages\IPNetwork2.2.1.2\lib\net45\System.Net.IPNetwork.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="Newtonsoft.Json, Version=6.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\packages\Newtonsoft.Json.6.0.4\lib\net45\Newtonsoft.Json.dll</HintPath>
       <Private>True</Private>
@@ -128,7 +154,6 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="Classes\Helpers.cs" />
-    <Compile Include="Classes\HtmlData.cs" />
     <Compile Include="Converters\BoolToColorConverter.cs" />
     <Compile Include="Converters\BoolToCollapsedConverter.cs" />
     <Compile Include="Converters\SubtractionConverter.cs" />
@@ -138,7 +163,14 @@
     <Compile Include="Interfaces\IWebSocketService.cs" />
     <Compile Include="Model\Album.cs" />
     <Compile Include="Interfaces\IPlayer.cs" />
-    <Compile Include="Services\HttpServer.cs" />
+    <Compile Include="Remote\AlbumIdHelper.cs" />
+    <Compile Include="Remote\FirewallHelper.cs" />
+    <Compile Include="Remote\IRemoteControl.cs" />
+    <Compile Include="Remote\LydApiServer.cs" />
+    <Compile Include="Remote\MainRemoteControl.cs" />
+    <Compile Include="Remote\MdnsAdvertiser.cs" />
+    <Compile Include="Remote\RemoteDtos.cs" />
+    <Compile Include="Remote\RemoteHostSettings.cs" />
     <Compile Include="Services\Player.cs" />
     <Compile Include="Model\Song.cs" />
     <Compile Include="Services\DataService.cs" />
@@ -198,9 +230,6 @@
     <Content Include="Images\lyd_logo.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="LydRemote\songs.html">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Resource Include="Images\lyd_logo.png" />
     <Resource Include="lyd_logo.ico" />
     <EmbeddedResource Include="lib\ikpFlac.dll">
@@ -231,7 +260,8 @@
   <Target Name="AfterBuild">
     <ItemGroup>
       <MoveToLibFolder Include="$(OutputPath)*.dll ; $(OutputPath)*.pdb ; $(OutputPath)*.xml" />
-      <UnMovableLibs Include="$(OutputPath)lib\ikpFlac.dll ; $(OutputPath)lib\ikpMP3.dll" />
+      <!-- Keep native plugins + mDNS stack next to lyd.exe (PrettyBin lib\ probing breaks some Makaretu static init paths). -->
+      <UnMovableLibs Include="$(OutputPath)lib\ikpFlac.dll;$(OutputPath)lib\ikpMP3.dll;$(OutputPath)lib\Makaretu.Dns.dll;$(OutputPath)lib\Makaretu.Dns.Multicast.dll;$(OutputPath)lib\SimpleBase.dll;$(OutputPath)lib\Common.Logging.dll;$(OutputPath)lib\Common.Logging.Core.dll;$(OutputPath)lib\System.Net.IPNetwork.dll" />
     </ItemGroup>
     <Move SourceFiles="@(MoveToLibFolder)" DestinationFolder="$(OutputPath)lib" OverwriteReadOnlyFiles="true" />
     <Move SourceFiles="@(UnMovableLibs)" DestinationFolder="$(OutputPath)" OverwriteReadOnlyFiles="true" />
