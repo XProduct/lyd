@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using FlacPlayer.Remote;
 
 namespace FlacPlayer
@@ -34,6 +36,12 @@ namespace FlacPlayer
         }
 
         public string DiscoverabilityHint { get; private set; }
+
+        /// <summary>mDNS instance name, e.g. "Lyd on HOST".</summary>
+        public string DiscoverableAs { get; private set; }
+
+        /// <summary>Bound API base URLs (IPv4 / IPv6), one per line.</summary>
+        public string BoundUrls { get; private set; }
 
         public void SetControl(IRemoteControl control)
         {
@@ -94,23 +102,30 @@ namespace FlacPlayer
 
             string host = Environment.MachineName;
             string instance = "Lyd on " + host;
-            string baseUrl = "http://" + GetLanIp() + ":" + _settings.Port + "/api/v1";
-            if (!lanBound)
-            {
-                baseUrl = "http://127.0.0.1:" + _settings.Port + "/api/v1";
-            }
+            DiscoverableAs = instance;
+            BoundUrls = BuildBoundUrlsText(_settings.Port, lanBound);
+
+            string firewallNote = "Requires inbound TCP " + _settings.Port + " (API) and UDP 5353 (mDNS). First-run firewall prompt covers this.";
+            string bindNote = lanBound ? "" : " (localhost only until firewall/URL ACL is granted)";
 
             _mdns = new MdnsAdvertiser();
             try
             {
                 _mdns.Start(instance, _settings.Port, _control.DisplayName ?? instance);
-                DiscoverabilityHint = "Discoverable as \"" + instance + "\" (_lyd._tcp). API: " + baseUrl +
-                    (lanBound ? "" : " (localhost only until firewall/URL ACL is granted)");
+                DiscoverabilityHint =
+                    "Discoverable as \"" + instance + "\" (_lyd._tcp)" + Environment.NewLine +
+                    BoundUrls + Environment.NewLine +
+                    firewallNote + bindNote;
             }
             catch (Exception ex)
             {
                 MdnsAdvertiser.WriteErrorLog(ex);
-                DiscoverabilityHint = "API: " + baseUrl + " (mDNS failed: " + MdnsAdvertiser.FlattenException(ex) + ")";
+                DiscoverableAs = "(mDNS failed)";
+                DiscoverabilityHint =
+                    "Discoverable as: mDNS failed — " + MdnsAdvertiser.FlattenException(ex) + Environment.NewLine +
+                    BoundUrls + Environment.NewLine +
+                    firewallNote +
+                    " Use a bound URL below for manual IP entry on the Apple remote.";
             }
         }
 
@@ -147,6 +162,66 @@ namespace FlacPlayer
             _settings.FirewallPromptedPort = 0;
             _settings.Save();
             Start();
+        }
+
+        private static string BuildBoundUrlsText(int port, bool lanBound)
+        {
+            var lines = new List<string>();
+            if (!lanBound)
+            {
+                lines.Add("http://127.0.0.1:" + port + "/api/v1");
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            foreach (IPAddress ip in GetLocalAddresses())
+            {
+                lines.Add("http://" + FormatHostForUrl(ip) + ":" + port + "/api/v1");
+            }
+
+            if (lines.Count == 0)
+            {
+                lines.Add("http://" + GetLanIp() + ":" + port + "/api/v1");
+            }
+
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        private static IEnumerable<IPAddress> GetLocalAddresses()
+        {
+            var list = new List<IPAddress>();
+            try
+            {
+                foreach (IPAddress ip in Dns.GetHostAddresses(Dns.GetHostName()))
+                {
+                    if (ip.AddressFamily == AddressFamily.InterNetwork)
+                    {
+                        if (!IPAddress.IsLoopback(ip))
+                        {
+                            list.Add(ip);
+                        }
+                    }
+                    else if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+                    {
+                        if (!IPAddress.IsLoopback(ip) && !ip.IsIPv6LinkLocal && !ip.IsIPv6SiteLocal)
+                        {
+                            list.Add(ip);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return list;
+        }
+
+        private static string FormatHostForUrl(IPAddress ip)
+        {
+            if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+            {
+                return "[" + ip + "]";
+            }
+            return ip.ToString();
         }
 
         private static string GetLanIp()

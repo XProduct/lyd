@@ -240,11 +240,11 @@
             </Grid.ColumnDefinitions>
             <Grid.RowDefinitions>
                 <RowDefinition Height="38" />
-                <RowDefinition Height="112" />
+                <RowDefinition Height="96" />
                 <RowDefinition Height="6" />
                 <RowDefinition Height="32" />
                 <RowDefinition Height="6" />
-                <RowDefinition Height="32" />
+                <RowDefinition Height="*" />
                 <RowDefinition Height="6" />
                 <RowDefinition Height="38" />
             </Grid.RowDefinitions>
@@ -273,8 +273,11 @@
 
             <TextBlock Text="Lyd Remote" Grid.Column="1" Grid.Row="5" HorizontalAlignment="Left" FontSize="26" VerticalAlignment="Top" />
             <StackPanel Grid.Column="3" Grid.Row="5">
-                <TextBox Background="Transparent" Text="{Binding LydRemoteInstructions, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Foreground="{StaticResource Foreground}" />
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <TextBlock Text="{Binding RemoteDiscoverableAs, Mode=OneWay, StringFormat=Discoverable as {0}}" TextWrapping="Wrap" Foreground="{StaticResource Foreground}" />
+                <TextBlock Text="Bound URLs" Margin="0,8,0,2" Foreground="{StaticResource Foreground}" Opacity="0.7" />
+                <TextBox Background="Transparent" Text="{Binding RemoteBoundUrls, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Foreground="{StaticResource Foreground}" MinHeight="36" />
+                <TextBox Background="Transparent" Text="{Binding LydRemoteInstructions, Mode=OneWay}" IsReadOnly="True" TextWrapping="Wrap" BorderThickness="0" Foreground="{StaticResource Foreground}" Opacity="0.85" Margin="0,6,0,0" />
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Text="API Port" VerticalAlignment="Center" Margin="0,0,8,0" />
                     <TextBox Width="72" Text="{Binding RemotePort, UpdateSourceTrigger=PropertyChanged}" />
                 </StackPanel>

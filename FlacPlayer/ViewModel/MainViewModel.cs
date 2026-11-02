@@ -66,11 +66,13 @@ namespace FlacPlayer.ViewModel
             try
             {
                 WebSocketService.Start();
-                LydRemoteInstructions = WebSocketService.DiscoverabilityHint;
+                RefreshRemoteDiscoverability();
             }
             catch (Exception ex)
             {
                 LydRemoteInstructions = "Remote API failed to start: " + ex.Message;
+                RemoteDiscoverableAs = "(offline)";
+                RemoteBoundUrls = string.Empty;
             }
         }
 
@@ -1280,6 +1282,32 @@ namespace FlacPlayer.ViewModel
         }
         private int _remotePort = 8080;
 
+        /// <summary>Settings: mDNS instance name ("Discoverable as …").</summary>
+        public string RemoteDiscoverableAs
+        {
+            get { return _remoteDiscoverableAs; }
+            private set
+            {
+                if (_remoteDiscoverableAs == value) return;
+                _remoteDiscoverableAs = value;
+                RaisePropertyChanged(nameof(RemoteDiscoverableAs));
+            }
+        }
+        private string _remoteDiscoverableAs = string.Empty;
+
+        /// <summary>Settings: bound API base URLs (IPv4/IPv6), one per line.</summary>
+        public string RemoteBoundUrls
+        {
+            get { return _remoteBoundUrls; }
+            private set
+            {
+                if (_remoteBoundUrls == value) return;
+                _remoteBoundUrls = value;
+                RaisePropertyChanged(nameof(RemoteBoundUrls));
+            }
+        }
+        private string _remoteBoundUrls = string.Empty;
+
         public string RemoteDisplayName
         {
             get { return "Lyd on " + Environment.MachineName; }
@@ -1317,6 +1345,7 @@ namespace FlacPlayer.ViewModel
                     IsAlbumsVisible = false;
                     IsSongsVisible = false;
                     IsSelectedAlbumVisible = false;
+                    RefreshRemoteDiscoverability();
                     break;
             }
         }
@@ -1559,8 +1588,8 @@ namespace FlacPlayer.ViewModel
                 if (RemotePort > 0 && RemotePort <= 65535 && RemotePort != WebSocketService.Port)
                 {
                     WebSocketService.ApplyPort(RemotePort);
-                    LydRemoteInstructions = WebSocketService.DiscoverabilityHint;
                 }
+                RefreshRemoteDiscoverability();
             }
             catch (Exception ex)
             {
@@ -1569,6 +1598,13 @@ namespace FlacPlayer.ViewModel
 
             RefreshSongs();
             SelectedMenuItem = "Songs";
+        }
+
+        private void RefreshRemoteDiscoverability()
+        {
+            RemoteDiscoverableAs = WebSocketService.DiscoverableAs ?? string.Empty;
+            RemoteBoundUrls = WebSocketService.BoundUrls ?? string.Empty;
+            LydRemoteInstructions = WebSocketService.DiscoverabilityHint ?? string.Empty;
         }
 
         private void SetPlayTime()
@@ -1643,6 +1679,12 @@ namespace FlacPlayer.ViewModel
         private void BumpLibraryRevision()
         {
             Interlocked.Increment(ref _libraryRevision);
+        }
+
+        /// <summary>Monotonic library revision for cheap remote polls (C1).</summary>
+        public int GetLibraryRevision()
+        {
+            return _libraryRevision;
         }
 
         public LibraryDto BuildRemoteLibrary()

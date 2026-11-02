@@ -10,6 +10,8 @@ namespace FlacPlayer
         void ApplyPort(int port);
         int Port { get; }
         string DiscoverabilityHint { get; }
+        string DiscoverableAs { get; }
+        string BoundUrls { get; }
         bool IsRunning { get; }
     }
 }
