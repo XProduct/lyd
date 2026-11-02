@@ -70,7 +70,7 @@ struct SettingsView: View {
                                 if session.phase == .connected,
                                    session.selectedEndpoint == host.endpointLabel {
                                     Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.tint)
+                                        .foregroundStyle(LydTheme.primary)
                                 }
                             }
                         }
@@ -103,7 +103,8 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
         #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {

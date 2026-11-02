@@ -23,6 +23,8 @@ struct SongsView: View {
         }
         .navigationTitle("Songs")
         #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
         .searchable(text: $query, prompt: "Title, artist, album")
         .refreshable {
             await session.refreshLibrary(force: true)

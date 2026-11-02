@@ -19,7 +19,7 @@ struct NowPlayingView: View {
                     .frame(maxWidth: 360)
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .padding(.top, 12)
+                    .padding(.top, 4)
 
                 VStack(spacing: 6) {
                     Text(song?.displayTitle ?? "Nothing playing")
@@ -94,6 +94,7 @@ struct NowPlayingView: View {
                     } label: {
                         Image(systemName: session.playback.isPlaying ? "pause.circle.fill" : "play.circle.fill")
                             .font(.system(size: 64))
+                            .foregroundStyle(LydTheme.primary)
                     }
 
                     Button {
@@ -114,7 +115,7 @@ struct NowPlayingView: View {
                             systemImage: "shuffle"
                         )
                         .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(session.playback.shuffle ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(session.playback.shuffle ? LydTheme.primary : Color.secondary)
                     }
 
                     #if os(tvOS)
@@ -184,6 +185,10 @@ struct NowPlayingView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .navigationTitle("Now Playing")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
+        #endif
         .onAppear { volumeDraft = session.playback.volume }
     }
 

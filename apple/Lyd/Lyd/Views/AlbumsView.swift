@@ -33,14 +33,16 @@ struct AlbumsView: View {
             .padding(gridPadding)
         }
         .navigationTitle("Albums")
-        .navigationDestination(for: AlbumDto.self) { album in
-            AlbumDetailView(album: album)
-        }
         #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
         .refreshable {
             await session.refreshLibrary(force: true)
         }
         #endif
+        .navigationDestination(for: AlbumDto.self) { album in
+            AlbumDetailView(album: album)
+        }
         .overlay {
             if session.library.albums.isEmpty {
                 ContentUnavailableView(
