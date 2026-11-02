@@ -123,18 +123,24 @@ struct NowPlayingView: View {
     #if os(tvOS)
     private var tvOSBody: some View {
         GeometryReader { geo in
+            // Full primary viewport + nearly another screen of empty scroll before "More".
+            let secondaryOffset = max(geo.size.height * 0.9, 700)
+
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
                     tvOSPrimaryPage
-                        .frame(minHeight: max(geo.size.height - 96, 520))
+                        .frame(minHeight: max(geo.size.height, 720))
                         .padding(.horizontal, 48)
                         .padding(.top, 36)
                         .padding(.bottom, 24)
 
+                    Color.clear
+                        .frame(height: secondaryOffset)
+                        .accessibilityHidden(true)
+
                     tvOSSecondarySection
                         .padding(.horizontal, 48)
-                        .padding(.top, 28)
-                        .padding(.bottom, 64)
+                        .padding(.bottom, 80)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -155,6 +161,7 @@ struct NowPlayingView: View {
 
             VStack(alignment: .leading, spacing: 28) {
                 ScrollablePageTitle(title: "Now Playing")
+                    .padding(.bottom, 20)
 
                 metadataBlock(centered: false)
 
@@ -199,14 +206,14 @@ struct NowPlayingView: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 if let status = session.statusMessage {
                     Text(status)
                         .font(.body)
                         .foregroundStyle(.red)
                 }
                 Text("Controlling \(session.selectedDisplayName)")
-                    .font(.title3)
+                    .font(.body)
                     .foregroundStyle(Color.secondary)
                 Text(session.selectedEndpoint)
                     .font(.body)
