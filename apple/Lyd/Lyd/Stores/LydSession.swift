@@ -51,6 +51,8 @@ final class LydSession: ObservableObject {
     @Published private(set) var hasLoadedSongCatalog = false
     /// Phase E: multi-select Playing on device ids (`LydOutputIds.host` and/or player ids).
     @Published private(set) var outputTargetIds: Set<String> = [LydOutputIds.host]
+    /// Host `allowMultiOutput` (Windows #32). Default false = single Playing on (desktop default).
+    @Published private(set) var allowMultiOutput = false
     /// Other registered Apple players on this host (excludes this device in the UI list).
     @Published private(set) var registeredPlayers: [PlayerDto] = []
 
@@ -72,6 +74,26 @@ final class LydSession: ObservableObject {
     /// Optimistic Playing on selection — polls must not clobber until host matches or grace ends.
     private var pendingOutputTargetIds: Set<String>?
     private var pendingOutputUntil: Date?
+    /// Phase F: at most one corrective hard seek per song (join catch-up counts).
+    private var didCorrectiveTimelineSeekThisItem = false
+    /// Live host playhead sampled at poll receive — clock-safe fallback when sticky+offset unavailable.
+    private var timelineSamplePositionMs: Int64 = 0
+    private var timelineSampleAt: Date?
+    private var timelineSamplePlaying = false
+    /// Host−client wall offset: `serverUnixMs − clientReceiveUnixMs` (positive ⇒ client clock behind).
+    /// Matches Windows #27 / f1-clock-skew-contract: correctedNow = clientNow + offsetMs.
+    private var serverMinusClientMs: Int64 = 0
+    private var hasHostClockOffset = false
+    /// Last sticky pin from the host (transport / one-shot glue — not rewritten every poll).
+    private var stickyAnchorUnixMs: Int64?
+    private var stickyPositionAtAnchorMs: Int64?
+    /// Phase F: join catch-up once, then rate=1.0 and no mid-track sync seeks/rate (skips).
+    private enum TimelineSync {
+        /// Join/ready: one catch-up seek if |skew| at least this; then leave AVPlayer alone.
+        static let joinSeekSkewMs: Int64 = 750
+        /// EMA for serverMinusClientMs (poll RTT noise → stable desired at join).
+        static let clockOffsetEmaAlpha: Double = 0.25
+    }
 
     /// This device is checked in Playing on → AVPlayer renders; unchecked = remote-only UI.
     var isLocalAudioOutput: Bool { outputTargetIds.contains(DeviceIdentity.deviceId) }
@@ -212,8 +234,17 @@ final class LydSession: ObservableObject {
         }
         localPlayer.stop()
         outputTargetIds = [LydOutputIds.host]
+        allowMultiOutput = false
         pendingOutputTargetIds = nil
         pendingOutputUntil = nil
+        didCorrectiveTimelineSeekThisItem = false
+        timelineSampleAt = nil
+        timelineSamplePositionMs = 0
+        timelineSamplePlaying = false
+        serverMinusClientMs = 0
+        hasHostClockOffset = false
+        stickyAnchorUnixMs = nil
+        stickyPositionAtAnchorMs = nil
         registeredPlayers = []
         lastAppliedSeekGeneration = -1
         client = nil
@@ -376,8 +407,13 @@ final class LydSession: ObservableObject {
     }
 
     /// Phase E: toggle one Playing on target (host / this device / other registered player).
+    /// When `allowMultiOutput` is false, tapping a row **replaces** the selection (single-select).
     func setOutputTarget(deviceId: String, enabled: Bool) async {
         guard client != nil else { return }
+        if !allowMultiOutput {
+            await applyOutputTargets([deviceId])
+            return
+        }
         var next = outputTargetIds
         if enabled {
             next.insert(deviceId)
@@ -393,39 +429,51 @@ final class LydSession: ObservableObject {
 
     func applyOutputTargets(_ ids: Set<String>) async {
         guard client != nil else { return }
-        let normalized = Self.nonEmptyOutputTargets(ids)
+        var normalized = Self.nonEmptyOutputTargets(ids)
+        if !allowMultiOutput, normalized.count > 1 {
+            normalized = Self.collapseToSingleOutput(normalized)
+        }
         let previousLocal = isLocalAudioOutput
         let wasPlaying = effectiveIsPlaying
         let position = effectivePositionMs
         let songId = playback.currentSongId
 
-        // Optimistic UI first — hold off host poll overwrites until confirmed.
+        // Optimistic UI; host response is authoritative (may collapse when multi is off).
         outputTargetIds = normalized
         pendingOutputTargetIds = normalized
         pendingOutputUntil = Date().addingTimeInterval(3.0)
-        let nowLocal = isLocalAudioOutput
+
+        // Stop immediately when leaving the output set — don't wait for the next poll.
+        if previousLocal, !normalized.contains(DeviceIdentity.deviceId) {
+            localPlayer.stop()
+        }
 
         configureLocalPlayerIfNeeded()
-        async let registered: Void = registerThisPlayer()
-        async let pushed: Void = pushOutputTargetsToHost()
+        await registerThisPlayer()
+        let hostState = await pushOutputTargetsToHost()
+        if let hostState {
+            // Clear pending so sync trusts the POST response (contract: host is source of truth).
+            pendingOutputTargetIds = nil
+            pendingOutputUntil = nil
+            await applyHostPlaybackState(hostState)
+        } else {
+            await refreshPlayback()
+        }
 
+        let nowLocal = isLocalAudioOutput
         if nowLocal, !previousLocal {
             lastAppliedSeekGeneration = playback.seekGeneration ?? lastAppliedSeekGeneration
             if let songId {
                 await startLocalStream(songId: songId, atMs: position, autoplay: wasPlaying)
             }
-        } else if !nowLocal, previousLocal {
+        } else if !nowLocal, previousLocal, localPlayer.currentSongId != nil {
             localPlayer.stop()
         }
 
-        await registered
-        await pushed
         if nowLocal {
             await reportPlaybackHeartbeat()
         }
         await refreshPlayers()
-        // Refresh song/transport only; syncOutputTargets respects pending until host matches.
-        await refreshPlayback()
     }
 
     /// Foreground / Retry: ping health then resume polls if the host is back.
@@ -592,6 +640,7 @@ final class LydSession: ObservableObject {
                 library = lib
                 noteLibraryContentLoaded(lib)
                 playback = try await api.playbackState()
+                noteHostTimelineSample(playback)
                 configureLocalPlayerIfNeeded()
                 await registerThisPlayer()
                 lastAppliedSeekGeneration = playback.seekGeneration ?? -1
@@ -599,9 +648,10 @@ final class LydSession: ObservableObject {
                 // Heal empty Playing on from host and push a real renderer before first play.
                 await ensurePlaybackOutputsReady()
                 if isLocalAudioOutput, let songId = playback.currentSongId {
+                    // Late join / restart: start on the clock-corrected host timeline.
                     await startLocalStream(
                         songId: songId,
-                        atMs: playback.positionMs,
+                        atMs: hostTimelineDesiredMs(),
                         autoplay: playback.isPlaying
                     )
                 }
@@ -687,6 +737,13 @@ final class LydSession: ObservableObject {
                 await self.next()
             }
         }
+        // After buffer/start, host may have advanced — one join catch-up, then calm follow.
+        localPlayer.onBecameReady = { [weak self] in
+            Task { @MainActor in
+                guard let self, self.isLocalAudioOutput, self.playback.isPlaying else { return }
+                await self.followHostTimeline(self.playback, allowJoinSeek: true)
+            }
+        }
     }
 
     /// Guarantees at least one renderer before play/seek transport hits the host.
@@ -704,8 +761,9 @@ final class LydSession: ObservableObject {
         ids.isEmpty ? [LydOutputIds.host] : ids
     }
 
-    private func pushOutputTargetsToHost() async {
-        guard let client else { return }
+    @discardableResult
+    private func pushOutputTargetsToHost() async -> PlaybackStateDto? {
+        guard let client else { return nil }
         let ids = Self.nonEmptyOutputTargets(outputTargetIds)
         if ids != outputTargetIds {
             outputTargetIds = ids
@@ -721,29 +779,33 @@ final class LydSession: ObservableObject {
             return PlaybackOutputTargetDto(deviceId: id, deviceName: name ?? id)
         }
         do {
-            try await client.setPlaybackOutputs(targets)
+            return try await client.setPlaybackOutputs(targets)
         } catch {
             // Legacy single-target recovery must match the user's selection.
             // Never POST host-only when This device (or any non-host target) is selected —
             // that was wiping multi / This-device picks and stopping AVPlayer.
             if ids == [LydOutputIds.host] {
-                try? await client.setPlaybackOutput(target: "host", deviceId: nil, deviceName: nil)
+                return try? await client.setPlaybackOutput(target: "host", deviceId: nil, deviceName: nil)
             } else if ids.contains(DeviceIdentity.deviceId) {
-                try? await client.setPlaybackOutput(
+                return try? await client.setPlaybackOutput(
                     target: "remote",
                     deviceId: DeviceIdentity.deviceId,
                     deviceName: DeviceIdentity.displayName
                 )
             }
             // Other remotes-only / unknown: leave host state alone rather than force host.
+            return nil
         }
     }
 
     private func refreshPlayers() async {
         guard let client else { return }
         do {
-            let players = try await client.listPlayers()
-            registeredPlayers = players
+            let response: PlayersResponse = try await client.getPlayers()
+            if let flag = response.allowMultiOutput {
+                allowMultiOutput = flag
+            }
+            registeredPlayers = (response.players ?? [])
                 .filter { $0.deviceId != DeviceIdentity.deviceId }
                 .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         } catch {
@@ -752,7 +814,41 @@ final class LydSession: ObservableObject {
     }
 
     private func syncOutputTargets(from remote: PlaybackStateDto) {
+        // Missing field → false (matches desktop default off / f1-allow-multi-output-contract).
+        allowMultiOutput = remote.allowMultiOutput ?? false
         let remoteIds = resolvedOutputTargetIds(from: remote)
+
+        // Single-output mode: host collapse is authoritative — never sticky-repush This device.
+        if !allowMultiOutput {
+            if let remoteIds {
+                var next = Self.nonEmptyOutputTargets(remoteIds)
+                if next.count > 1 {
+                    next = Self.collapseToSingleOutput(next)
+                }
+                if let pending = pendingOutputTargetIds {
+                    let pendingSingle = {
+                        let p = Self.nonEmptyOutputTargets(pending)
+                        return p.count > 1 ? Self.collapseToSingleOutput(p) : p
+                    }()
+                    if next == pendingSingle {
+                        pendingOutputTargetIds = nil
+                        pendingOutputUntil = nil
+                        outputTargetIds = next
+                        return
+                    }
+                    if let until = pendingOutputUntil, Date() < until {
+                        outputTargetIds = pendingSingle
+                        return
+                    }
+                    pendingOutputTargetIds = nil
+                    pendingOutputUntil = nil
+                }
+                outputTargetIds = next
+            } else if outputTargetIds.isEmpty {
+                outputTargetIds = [LydOutputIds.host]
+            }
+            return
+        }
 
         if let pending = pendingOutputTargetIds {
             let pendingNormalized = Self.nonEmptyOutputTargets(pending)
@@ -808,6 +904,20 @@ final class LydSession: ObservableObject {
             return
         }
         outputTargetIds = Self.nonEmptyOutputTargets(remoteIds)
+    }
+
+    /// Single-output mode: prefer host if selected, else keep one stable id.
+    private static func collapseToSingleOutput(_ ids: Set<String>) -> Set<String> {
+        if ids.contains(LydOutputIds.host) {
+            return [LydOutputIds.host]
+        }
+        if ids.contains(DeviceIdentity.deviceId) {
+            return [DeviceIdentity.deviceId]
+        }
+        if let first = ids.sorted().first {
+            return [first]
+        }
+        return [LydOutputIds.host]
     }
 
     /// `nil` = host omitted output info (don't clobber). Empty list is treated as host.
@@ -886,6 +996,9 @@ final class LydSession: ObservableObject {
         let previouslyLocal = isLocalAudioOutput
         syncOutputTargets(from: remote)
         let nowLocal = isLocalAudioOutput
+        // Always refresh the local timeline sample — even when not rendering — so a later
+        // join uses a clock-skew-safe base instead of raw AnchorUnixMs vs iOS wall clock.
+        noteHostTimelineSample(remote)
 
         if nowLocal {
             var merged = remote
@@ -902,11 +1015,14 @@ final class LydSession: ObservableObject {
             }
             playback = merged
 
+            // Late join / output enable: catch up alone to host timeline (don’t resync peers).
             if !previouslyLocal, let songId = remote.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? -1
+                didCorrectiveTimelineSeekThisItem = false
+                let target = hostTimelineDesiredMs()
                 await startLocalStream(
                     songId: songId,
-                    atMs: remote.positionMs,
+                    atMs: target,
                     autoplay: remote.isPlaying
                 )
                 return
@@ -915,9 +1031,11 @@ final class LydSession: ObservableObject {
             let songId = remote.currentSongId
             if let songId, songId != localPlayer.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? lastAppliedSeekGeneration
+                didCorrectiveTimelineSeekThisItem = false
+                let target = hostTimelineDesiredMs()
                 await startLocalStream(
                     songId: songId,
-                    atMs: remote.positionMs,
+                    atMs: target,
                     autoplay: remote.isPlaying
                 )
                 return
@@ -928,11 +1046,15 @@ final class LydSession: ObservableObject {
                 return
             }
 
+            // Host-initiated seek / transport bump — not drift chatter; apply once per generation.
             let generation = remote.seekGeneration ?? 0
             if generation != lastAppliedSeekGeneration {
                 lastAppliedSeekGeneration = generation
-                if abs(remote.positionMs - localPlayer.positionMs) > 1500 {
-                    await localPlayer.seek(positionMs: remote.positionMs)
+                let target = hostTimelineDesiredMs()
+                // Generous seek tolerance — precise mid-stream seeks rebuffer and click.
+                if abs(target - localPlayer.positionMs) > 400 {
+                    await localPlayer.seek(positionMs: target, precise: false)
+                    localPlayer.setPlaybackRate(1.0)
                 }
             }
 
@@ -943,11 +1065,120 @@ final class LydSession: ObservableObject {
                     localPlayer.pause()
                 }
             }
+
+            // After join: keep rate at 1.0 only — no mid-track rate/seek follow (audible skips).
+            if !suppressTransport, remote.isPlaying, localPlayer.currentSongId != nil {
+                await followHostTimeline(remote, allowJoinSeek: false)
+            }
         } else {
             if previouslyLocal {
                 localPlayer.stop()
             }
             playback = remote
+        }
+    }
+
+    /// Capture sticky anchors + clock offset (or live-position fallback) at poll receive.
+    private func noteHostTimelineSample(_ remote: PlaybackStateDto) {
+        let receiveMs = Int64(Date().timeIntervalSince1970 * 1000)
+
+        var rawOffset: Int64?
+        if let server = remote.serverUnixMs, server > 0 {
+            // Windows #27: offsetMs ≈ serverUnixMs − clientLocalUnixMsAtReceive
+            rawOffset = server - receiveMs
+        } else if let anchor = remote.anchorUnixMs,
+                  let atAnchor = remote.positionAtAnchorMs,
+                  remote.isPlaying {
+            // Pre-#27 hosts: infer host−client from sticky derive vs live playhead.
+            let derivedOnClientClock = atAnchor + (receiveMs - anchor)
+            rawOffset = remote.positionMs - derivedOnClientClock
+        }
+        if let rawOffset {
+            applyClockOffsetSample(rawOffset)
+        }
+
+        stickyAnchorUnixMs = remote.anchorUnixMs
+        stickyPositionAtAnchorMs = remote.positionAtAnchorMs
+
+        // Live playhead sample — fallback when sticky+offset path is unavailable.
+        timelineSamplePositionMs = remote.liveHostPositionMs
+        timelineSampleAt = Date()
+        timelineSamplePlaying = remote.isPlaying
+    }
+
+    /// EMA-smooth clock offset so poll RTT noise does not flutter rate/desired.
+    private func applyClockOffsetSample(_ rawOffsetMs: Int64) {
+        if !hasHostClockOffset {
+            serverMinusClientMs = rawOffsetMs
+            hasHostClockOffset = true
+            return
+        }
+        let alpha = TimelineSync.clockOffsetEmaAlpha
+        let blended = Double(serverMinusClientMs) * (1 - alpha) + Double(rawOffsetMs) * alpha
+        serverMinusClientMs = Int64(blended.rounded())
+    }
+
+    /// Desired playhead on the host timeline, corrected for wall-clock skew.
+    private func hostTimelineDesiredMs(at date: Date = Date()) -> Int64 {
+        if let anchor = stickyAnchorUnixMs ?? playback.anchorUnixMs,
+           let atAnchor = stickyPositionAtAnchorMs ?? playback.positionAtAnchorMs {
+            let playing = timelineSamplePlaying || playback.isPlaying
+            if !playing {
+                return max(0, atAnchor)
+            }
+            if hasHostClockOffset {
+                // Contract: correctedNow = clientNow + (serverUnixMs − clientReceive)
+                // desired = positionAtAnchorMs + (correctedNow − anchorUnixMs)
+                let nowMs = Int64(date.timeIntervalSince1970 * 1000)
+                let correctedNowMs = nowMs + serverMinusClientMs
+                return max(0, atAnchor + (correctedNowMs - anchor))
+            }
+            // Sticky without an offset estimate: never raw client wall vs AnchorUnixMs
+            // (~3s ahead / ~6s behind). Fall through to live positionMs sample.
+        }
+
+        guard let sampleAt = timelineSampleAt else {
+            return max(0, playback.positionMs)
+        }
+        if !timelineSamplePlaying {
+            return timelineSamplePositionMs
+        }
+        let elapsedMs = Int64(date.timeIntervalSince(sampleAt) * 1000)
+        return max(0, timelineSamplePositionMs + max(0, elapsedMs))
+    }
+
+    /// Align AVPlayer to host timeline. Corrections apply to **this device only**.
+    /// - Parameter allowJoinSeek: true only from ready — one catch-up if badly off, then never again.
+    private func followHostTimeline(_ remote: PlaybackStateDto, allowJoinSeek: Bool = false) async {
+        let playing = remote.isPlaying || timelineSamplePlaying
+        guard playing else {
+            ensureUnityRate()
+            return
+        }
+
+        // Join/ready only: one seek if badly off. No mid-track drift seeks (they rebuffer/skip).
+        if allowJoinSeek, !didCorrectiveTimelineSeekThisItem {
+            let desired = hostTimelineDesiredMs()
+            let skew = desired - localPlayer.positionMs
+            if abs(skew) >= TimelineSync.joinSeekSkewMs {
+                didCorrectiveTimelineSeekThisItem = true
+                // Non-precise: avoid tight reseek clicks on LAN streams.
+                await localPlayer.seek(positionMs: desired, precise: false)
+                localPlayer.resume()
+            } else {
+                // Close enough at join — consume the once-per-track seek budget anyway
+                // so polls never hard-seek for ordinary drift.
+                didCorrectiveTimelineSeekThisItem = true
+            }
+        }
+
+        ensureUnityRate()
+    }
+
+    /// Keep AVPlayer at 1.0× after lock — rate tweaks (even ±3%) click/skip on stream items.
+    private func ensureUnityRate() {
+        if abs(localPlayer.playbackRate - 1.0) > 0.001 {
+            localPlayer.setPlaybackRate(1.0)
         }
     }
 

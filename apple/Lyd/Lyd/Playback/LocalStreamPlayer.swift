@@ -20,8 +20,13 @@ final class LocalStreamPlayer: ObservableObject {
     private var pendingStartMs: Int64 = 0
     private var pendingAutoplay = true
     private var sessionArmed = false
+    /// Once true for the current item, ready-to-play must not re-seek to a stale start
+    /// (that was clobbering Phase F catch-up seeks and leaving iOS seconds behind).
+    private var didApplyInitialStart = false
 
     var onFinished: (() -> Void)?
+    /// Fired once when the current item is ready and initial start/play has been applied.
+    var onBecameReady: (() -> Void)?
 
     /// Non-blocking: category + activate run off the main thread (avoids UI hitch).
     func configureAudioSession() {
@@ -33,6 +38,7 @@ final class LocalStreamPlayer: ObservableObject {
 
         pendingStartMs = max(0, startAtMs)
         pendingAutoplay = autoplay
+        didApplyInitialStart = false
         currentSongId = songId
         positionMs = pendingStartMs
         durationMs = 0
@@ -44,12 +50,12 @@ final class LocalStreamPlayer: ObservableObject {
             options: [AVURLAssetPreferPreciseDurationAndTimingKey: false]
         )
         let item = AVPlayerItem(asset: asset)
-        // Small forward buffer; don't wait for a long warm-up before first frames.
-        item.preferredForwardBufferDuration = 1.0
+        // Deeper buffer + stall-wait: short buffer + no-wait was causing audible mid-track skips.
+        item.preferredForwardBufferDuration = 4.0
 
         let av = ensurePlayer()
         av.volume = volume
-        av.automaticallyWaitsToMinimizeStalling = false
+        av.automaticallyWaitsToMinimizeStalling = true
 
         detachItemObservers()
         av.replaceCurrentItem(with: item)
@@ -80,13 +86,41 @@ final class LocalStreamPlayer: ObservableObject {
         isPlaying = false
     }
 
-    func seek(positionMs: Int64) async {
+    func seek(positionMs: Int64, precise: Bool = false) async {
         guard let player else { return }
+        // Mark initial start consumed so a late ready-to-play cannot rewind to pendingStartMs.
+        didApplyInitialStart = true
+        pendingStartMs = max(0, positionMs)
         let t = CMTime(value: max(0, positionMs), timescale: 1000)
-        // Generous tolerance = faster seeks on network streams.
-        await player.seek(to: t, toleranceBefore: .positiveInfinity, toleranceAfter: .positiveInfinity)
+        if precise {
+            // Phase F sync correction — tighter than transport scrub seeks.
+            let slack = CMTime(value: 40, timescale: 1000)
+            await player.seek(to: t, toleranceBefore: slack, toleranceAfter: slack)
+        } else {
+            // Generous tolerance = faster seeks on network streams.
+            await player.seek(to: t, toleranceBefore: .positiveInfinity, toleranceAfter: .positiveInfinity)
+        }
         self.positionMs = max(0, positionMs)
     }
+
+    /// Force a playback rate (session keeps 1.0 after join — mid-track tweaks skip).
+    /// No-ops while paused so a rate reset cannot accidentally resume.
+    func setPlaybackRate(_ rate: Float) {
+        guard let player else { return }
+        let clamped = min(max(rate, 0.5), 1.5)
+        if clamped <= 0.01 {
+            player.pause()
+            isPlaying = false
+            return
+        }
+        guard isPlaying || player.rate > 0.01 else { return }
+        if abs(player.rate - clamped) < 0.001 { return }
+        armAudioSession(active: true)
+        player.rate = clamped
+        isPlaying = true
+    }
+
+    var playbackRate: Float { player?.rate ?? 0 }
 
     func stop() {
         detachItemObservers()
@@ -140,7 +174,7 @@ final class LocalStreamPlayer: ObservableObject {
     private func ensurePlayer() -> AVPlayer {
         if let player { return player }
         let av = AVPlayer()
-        av.automaticallyWaitsToMinimizeStalling = false
+        av.automaticallyWaitsToMinimizeStalling = true
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = av.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
@@ -169,22 +203,31 @@ final class LocalStreamPlayer: ObservableObject {
                     self.durationMs = Int64(duration.seconds * 1000)
                 }
 
-                if startMs > 0 {
-                    let t = CMTime(value: startMs, timescale: 1000)
-                    await av.seek(
-                        to: t,
-                        toleranceBefore: .positiveInfinity,
-                        toleranceAfter: .positiveInfinity
-                    )
-                    self.positionMs = startMs
-                }
-
-                if shouldPlay {
+                // Only the first ready pass applies the join start — a Phase F catch-up
+                // seek sets didApplyInitialStart so we must not rewind to stale startMs.
+                if !self.didApplyInitialStart {
+                    self.didApplyInitialStart = true
+                    let applyStartMs = self.pendingStartMs > 0 ? self.pendingStartMs : startMs
+                    if applyStartMs > 0 {
+                        let t = CMTime(value: applyStartMs, timescale: 1000)
+                        await av.seek(
+                            to: t,
+                            toleranceBefore: .positiveInfinity,
+                            toleranceAfter: .positiveInfinity
+                        )
+                        self.positionMs = applyStartMs
+                    }
+                    if shouldPlay {
+                        av.play()
+                        self.isPlaying = true
+                    } else {
+                        av.pause()
+                        self.isPlaying = false
+                    }
+                    self.onBecameReady?()
+                } else if shouldPlay, !self.isPlaying {
                     av.play()
                     self.isPlaying = true
-                } else {
-                    av.pause()
-                    self.isPlaying = false
                 }
             }
         }

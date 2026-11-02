@@ -96,6 +96,38 @@ struct PlaybackStateDto: Codable, Hashable {
     var outputTargets: [PlaybackOutputTargetDto]?
     /// Bumped on host seek / track start so the Apple renderer re-seeks.
     var seekGeneration: Int64?
+    /// Phase F1 host timeline (optional on older hosts).
+    var anchorUnixMs: Int64?
+    var positionAtAnchorMs: Int64?
+    /// Host’s timeline estimate at serialize time (optional).
+    var timelineMs: Int64?
+    /// Host UTC unix ms at serialize time (Windows #27). Not sticky — refresh every response.
+    /// `offsetMs ≈ serverUnixMs − clientLocalUnixMsAtReceive`; do not substitute for `anchorUnixMs`.
+    var serverUnixMs: Int64?
+    /// When false (desktop default), Playing on is single-select. Optional until Windows ships the field.
+    var allowMultiOutput: Bool?
+
+    /// Live host playhead for clock-safe fallback (not the sticky anchor position).
+    var liveHostPositionMs: Int64 {
+        if let timelineMs {
+            return max(0, timelineMs)
+        }
+        return max(0, positionMs)
+    }
+
+    /// Sticky-anchor derive with clock correction (f1-clock-skew-contract).
+    /// - Parameter serverMinusClientMs: `serverUnixMs − clientReceiveUnixMs` (positive ⇒ client behind).
+    func desiredPositionMs(at date: Date = Date(), serverMinusClientMs: Int64 = 0) -> Int64 {
+        if let anchor = anchorUnixMs, let atAnchor = positionAtAnchorMs {
+            if !isPlaying {
+                return max(0, atAnchor)
+            }
+            let nowMs = Int64(date.timeIntervalSince1970 * 1000)
+            let correctedNowMs = nowMs + serverMinusClientMs
+            return max(0, atAnchor + (correctedNowMs - anchor))
+        }
+        return liveHostPositionMs
+    }
 }
 
 struct PlaybackOutputRequest: Encodable {
@@ -137,6 +169,8 @@ struct PlayerDto: Codable, Hashable, Identifiable {
 
 struct PlayersResponse: Codable {
     var players: [PlayerDto]?
+    /// Mirrored from playback state (Windows #32).
+    var allowMultiOutput: Bool?
 }
 
 enum LydOutputIds {
