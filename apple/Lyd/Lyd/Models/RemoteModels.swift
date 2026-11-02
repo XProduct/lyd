@@ -102,19 +102,29 @@ struct PlaybackStateDto: Codable, Hashable {
     /// Host’s timeline estimate at serialize time (optional).
     var timelineMs: Int64?
 
-    /// Desired playhead from host timeline. Falls back to `positionMs` / `timelineMs`.
-    func desiredPositionMs(at date: Date = Date()) -> Int64 {
-        if let anchor = anchorUnixMs, let atAnchor = positionAtAnchorMs {
-            if !isPlaying {
-                return max(0, atAnchor)
-            }
-            let nowMs = Int64(date.timeIntervalSince1970 * 1000)
-            return max(0, atAnchor + (nowMs - anchor))
+    /// Host-reported position at the timeline anchor (no client-clock math).
+    var hostAnchoredPositionMs: Int64 {
+        if let positionAtAnchorMs {
+            return max(0, positionAtAnchorMs)
         }
         if let timelineMs {
             return max(0, timelineMs)
         }
         return max(0, positionMs)
+    }
+
+    /// Raw wall-clock extrapolation. **Unsafe across devices** unless `hostClockSkewMs`
+    /// corrects for (clientUnixNow − hostUnixNow). Prefer session receive-time rebasing.
+    /// - Parameter hostClockSkewMs: estimate of clientNow − hostNow (positive ⇒ client clock ahead).
+    func desiredPositionMs(at date: Date = Date(), hostClockSkewMs: Int64 = 0) -> Int64 {
+        if let anchor = anchorUnixMs, let atAnchor = positionAtAnchorMs {
+            if !isPlaying {
+                return max(0, atAnchor)
+            }
+            let nowMs = Int64(date.timeIntervalSince1970 * 1000)
+            return max(0, atAnchor + (nowMs - anchor - hostClockSkewMs))
+        }
+        return hostAnchoredPositionMs
     }
 }
 

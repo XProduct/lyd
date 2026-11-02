@@ -74,6 +74,13 @@ final class LydSession: ObservableObject {
     private var pendingOutputUntil: Date?
     /// Phase F: at most one mid-track corrective hard seek per song (join/track start is separate).
     private var didCorrectiveTimelineSeekThisItem = false
+    /// Re-base host timeline onto the local clock at each poll so device clock skew
+    /// cannot invent multi-second lead (raw AnchorUnixMs − clientNow was the ~3s ahead bug).
+    private var timelineSamplePositionMs: Int64 = 0
+    private var timelineSampleAt: Date?
+    private var timelineSamplePlaying = false
+    /// Rough clientUnix − hostUnix from last anchor (diagnostics / optional fallback).
+    private var hostClockSkewMs: Int64 = 0
 
     /// Phase F: prefer rate-adjust for drift; hard seek only for huge skew (and once per track).
     private enum TimelineSync {
@@ -227,6 +234,10 @@ final class LydSession: ObservableObject {
         pendingOutputTargetIds = nil
         pendingOutputUntil = nil
         didCorrectiveTimelineSeekThisItem = false
+        timelineSampleAt = nil
+        timelineSamplePositionMs = 0
+        timelineSamplePlaying = false
+        hostClockSkewMs = 0
         registeredPlayers = []
         lastAppliedSeekGeneration = -1
         client = nil
@@ -899,6 +910,9 @@ final class LydSession: ObservableObject {
         let previouslyLocal = isLocalAudioOutput
         syncOutputTargets(from: remote)
         let nowLocal = isLocalAudioOutput
+        // Always refresh the local timeline sample — even when not rendering — so a later
+        // join uses a clock-skew-safe base instead of raw AnchorUnixMs vs iOS wall clock.
+        noteHostTimelineSample(remote)
 
         if nowLocal {
             var merged = remote
@@ -919,7 +933,7 @@ final class LydSession: ObservableObject {
             if !previouslyLocal, let songId = remote.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? -1
                 didCorrectiveTimelineSeekThisItem = false
-                let target = remote.desiredPositionMs()
+                let target = hostTimelineDesiredMs()
                 await startLocalStream(
                     songId: songId,
                     atMs: target,
@@ -932,7 +946,7 @@ final class LydSession: ObservableObject {
             if let songId, songId != localPlayer.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? lastAppliedSeekGeneration
                 didCorrectiveTimelineSeekThisItem = false
-                let target = remote.desiredPositionMs()
+                let target = hostTimelineDesiredMs()
                 await startLocalStream(
                     songId: songId,
                     atMs: target,
@@ -950,7 +964,7 @@ final class LydSession: ObservableObject {
             let generation = remote.seekGeneration ?? 0
             if generation != lastAppliedSeekGeneration {
                 lastAppliedSeekGeneration = generation
-                let target = remote.desiredPositionMs()
+                let target = hostTimelineDesiredMs()
                 if abs(target - localPlayer.positionMs) > 150 {
                     await localPlayer.seek(positionMs: target, precise: true)
                     localPlayer.setPlaybackRate(1.0)
@@ -977,9 +991,35 @@ final class LydSession: ObservableObject {
         }
     }
 
+    /// Capture host playhead at poll receive and re-base onto the local clock.
+    private func noteHostTimelineSample(_ remote: PlaybackStateDto) {
+        let hostPos = remote.hostAnchoredPositionMs
+        timelineSamplePositionMs = hostPos
+        timelineSampleAt = Date()
+        timelineSamplePlaying = remote.isPlaying
+        if let anchor = remote.anchorUnixMs {
+            let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+            // Positive ⇒ this device’s wall clock is ahead of the host’s.
+            hostClockSkewMs = nowMs - anchor
+        }
+    }
+
+    /// Desired playhead: host position at last poll + local elapsed (ignores cross-device UTC skew).
+    private func hostTimelineDesiredMs(at date: Date = Date()) -> Int64 {
+        guard let sampleAt = timelineSampleAt else {
+            return playback.desiredPositionMs(at: date, hostClockSkewMs: hostClockSkewMs)
+        }
+        if !timelineSamplePlaying {
+            return timelineSamplePositionMs
+        }
+        let elapsedMs = Int64(date.timeIntervalSince(sampleAt) * 1000)
+        return max(0, timelineSamplePositionMs + max(0, elapsedMs))
+    }
+
     /// Align AVPlayer to host timeline. Corrections apply to **this device only**.
     private func followHostTimeline(_ remote: PlaybackStateDto) async {
-        let desired = remote.desiredPositionMs()
+        let desired = hostTimelineDesiredMs()
+        // Positive ⇒ local behind host; negative ⇒ local ahead of host.
         let skew = desired - localPlayer.positionMs
         let absSkew = abs(skew)
 
@@ -994,7 +1034,7 @@ final class LydSession: ObservableObject {
             return
         }
 
-        // Prefer rate-adjust for all ordinary drift (including former mid-size seek band).
+        // Rate-adjust for ordinary drift: behind → speed up; ahead → slow down.
         if absSkew >= TimelineSync.rateSkewMs {
             localPlayer.setPlaybackRate(skew > 0 ? TimelineSync.rateFast : TimelineSync.rateSlow)
         } else if abs(localPlayer.playbackRate - 1.0) > 0.001 {
