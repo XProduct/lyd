@@ -1,7 +1,19 @@
 import SwiftUI
 
+private struct CoverMorphNamespaceKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+extension EnvironmentValues {
+    var coverMorphNamespace: Namespace.ID? {
+        get { self[CoverMorphNamespaceKey.self] }
+        set { self[CoverMorphNamespaceKey.self] = newValue }
+    }
+}
+
 struct LibraryShellView: View {
     @EnvironmentObject private var session: LydSession
+    @Namespace private var coverMorph
 
     var body: some View {
         TabView(selection: $session.selectedTab) {
@@ -29,8 +41,12 @@ struct LibraryShellView: View {
             .tabItem { Label("Settings", systemImage: "gearshape") }
             .tag(AppTab.settings)
         }
+        .environment(\.coverMorphNamespace, coverMorph)
         #if os(iOS)
         .tint(LydTheme.primary)
+        #else
+        // System tab bar selection colors on tvOS (no Lyd purple).
+        .tint(.primary)
         #endif
     }
 }

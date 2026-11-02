@@ -18,7 +18,7 @@ struct AlbumDetailView: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 16) {
-                    CoverImage(url: session.coverURL(for: album))
+                    CoverImage(url: session.coverURL(for: album), morphID: album.id)
                         .aspectRatio(1, contentMode: .fit)
                         .frame(maxWidth: artworkMaxSide)
                         .frame(maxWidth: .infinity)

@@ -2,6 +2,10 @@ import SwiftUI
 
 struct AlbumsView: View {
     @EnvironmentObject private var session: LydSession
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    #if os(tvOS)
+    @FocusState private var focusedAlbumID: String?
+    #endif
 
     private var columns: [GridItem] {
         #if os(tvOS)
@@ -28,9 +32,16 @@ struct AlbumsView: View {
                     .padding(.top, titleTopPadding)
 
                 LazyVGrid(columns: columns, alignment: .leading, spacing: gridSpacing) {
-                    ForEach(session.library.albums) { album in
+                    ForEach(Array(session.library.albums.enumerated()), id: \.element.id) { index, album in
                         #if os(tvOS)
-                        TVAlbumPosterCell(album: album, coverURL: session.coverURL(for: album))
+                        TVAlbumPosterCell(
+                            album: album,
+                            coverURL: session.coverURL(for: album),
+                            focusDepthScale: focusDepthScale(for: album.id),
+                            staggerIndex: index,
+                            reduceMotion: reduceMotion
+                        )
+                        .focused($focusedAlbumID, equals: album.id)
                         #else
                         NavigationLink(value: album) {
                             AlbumCell(album: album, coverURL: session.coverURL(for: album))
@@ -41,6 +52,12 @@ struct AlbumsView: View {
                 }
                 .padding(.horizontal, gridPadding)
                 .padding(.bottom, gridPadding)
+                #if os(tvOS)
+                .animation(
+                    reduceMotion ? nil : .easeOut(duration: 0.28),
+                    value: focusedAlbumID
+                )
+                #endif
             }
         }
         .scrollableNavigationTitle(hideBar: true)
@@ -61,6 +78,14 @@ struct AlbumsView: View {
             }
         }
     }
+
+    #if os(tvOS)
+    private func focusDepthScale(for albumID: String) -> CGFloat {
+        guard LydMotion.allowsMotion(reduceMotion), let focusedAlbumID else { return 1 }
+        if focusedAlbumID == albumID { return 1 }
+        return 0.94
+    }
+    #endif
 
     private var gridPadding: CGFloat {
         #if os(tvOS)
@@ -85,6 +110,11 @@ struct AlbumsView: View {
 private struct TVAlbumPosterCell: View {
     let album: AlbumDto
     let coverURL: URL?
+    var focusDepthScale: CGFloat = 1
+    var staggerIndex: Int = 0
+    var reduceMotion: Bool = false
+
+    @State private var appeared = false
 
     private let titleLineHeight: CGFloat = 28
     private let artistLineHeight: CGFloat = 24
@@ -92,7 +122,7 @@ private struct TVAlbumPosterCell: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             NavigationLink(value: album) {
-                CoverImage(url: coverURL)
+                CoverImage(url: coverURL, morphID: album.id)
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .frame(maxWidth: .infinity)
@@ -120,6 +150,20 @@ private struct TVAlbumPosterCell: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        .scaleEffect(focusDepthScale)
+        .opacity(appeared ? 1 : (reduceMotion ? 1 : 0))
+        .offset(y: appeared || reduceMotion ? 0 : 18)
+        .onAppear {
+            guard !appeared else { return }
+            if reduceMotion {
+                appeared = true
+            } else {
+                let delay = min(Double(staggerIndex) * LydMotion.staggerStep, 0.6)
+                withAnimation(.easeOut(duration: 0.4).delay(delay)) {
+                    appeared = true
+                }
+            }
+        }
     }
 }
 #endif
@@ -176,6 +220,9 @@ struct AlbumCell: View {
 
 struct CoverImage: View {
     let url: URL?
+    /// Stable id for Phase D matched-geometry morph (album id).
+    var morphID: String? = nil
+    @Environment(\.coverMorphNamespace) private var coverMorphNamespace
 
     var body: some View {
         ZStack {
@@ -201,11 +248,25 @@ struct CoverImage: View {
             }
         }
         .clipped()
+        .modifier(CoverMorphModifier(morphID: morphID, namespace: coverMorphNamespace))
     }
 
     private var placeholder: some View {
         Image(systemName: "music.note")
             .font(.largeTitle)
             .foregroundStyle(Color.secondary)
+    }
+}
+
+private struct CoverMorphModifier: ViewModifier {
+    let morphID: String?
+    let namespace: Namespace.ID?
+
+    func body(content: Content) -> some View {
+        if let morphID, let namespace {
+            content.matchedGeometryEffect(id: morphID, in: namespace)
+        } else {
+            content
+        }
     }
 }

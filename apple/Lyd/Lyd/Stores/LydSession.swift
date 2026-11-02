@@ -78,6 +78,25 @@ final class LydSession: ObservableObject {
             .sorted(by: Self.trackSort)
     }
 
+    /// Best-effort next track for “next up” peek (album order, then library order).
+    func predictedNextSong(after current: SongDto?) -> SongDto? {
+        guard let current else { return nil }
+        if let albumId = current.albumId,
+           let album = library.albums.first(where: { $0.id == albumId }) {
+            let tracks = songs(for: album)
+            if let idx = tracks.firstIndex(where: { $0.id == current.id }),
+               idx + 1 < tracks.count {
+                return tracks[idx + 1]
+            }
+        }
+        let all = library.songs
+        if let idx = all.firstIndex(where: { $0.id == current.id }),
+           idx + 1 < all.count {
+            return all[idx + 1]
+        }
+        return nil
+    }
+
     func coverURL(for album: AlbumDto) -> URL? {
         client?.coverURL(for: album.coverUrl)
     }
