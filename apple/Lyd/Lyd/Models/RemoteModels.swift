@@ -69,6 +69,18 @@ struct AlbumDto: Codable, Hashable, Identifiable {
     var displayArtist: String { artist?.nilIfEmpty ?? "Unknown Artist" }
 }
 
+struct PlaybackOutputTargetDto: Codable, Hashable, Identifiable {
+    var deviceId: String
+    var deviceName: String?
+
+    var id: String { deviceId }
+
+    var displayName: String {
+        let name = deviceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? deviceId : name
+    }
+}
+
 struct PlaybackStateDto: Codable, Hashable {
     var isPlaying: Bool
     var shuffle: Bool
@@ -77,6 +89,58 @@ struct PlaybackStateDto: Codable, Hashable {
     var currentSongId: String?
     var currentSong: SongDto?
     var volume: Double
+    /// Legacy: "host" | "remote" | "multi" (optional on older hosts).
+    var outputTarget: String?
+    var outputDeviceId: String?
+    /// Multi-select Playing on targets (`deviceId` "host" = Windows).
+    var outputTargets: [PlaybackOutputTargetDto]?
+    /// Bumped on host seek / track start so the Apple renderer re-seeks.
+    var seekGeneration: Int64?
+}
+
+struct PlaybackOutputRequest: Encodable {
+    var target: String?
+    var deviceId: String?
+    var deviceName: String?
+    var targets: [PlaybackOutputTargetDto]?
+}
+
+struct PlaybackHeartbeatRequest: Encodable {
+    var deviceId: String
+    var positionMs: Int64
+    var durationMs: Int64?
+    var songId: String?
+}
+
+struct PlayerRegisterRequest: Encodable {
+    var deviceId: String
+    var name: String
+    var platform: String
+    var capabilities: [String]
+}
+
+struct PlayerDto: Codable, Hashable, Identifiable {
+    var deviceId: String
+    var name: String?
+    var platform: String?
+    var capabilities: [String]?
+    var lastSeenUnixMs: Int64?
+    var isOutput: Bool?
+
+    var id: String { deviceId }
+
+    var displayName: String {
+        let n = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return n.isEmpty ? deviceId : n
+    }
+}
+
+struct PlayersResponse: Codable {
+    var players: [PlayerDto]?
+}
+
+enum LydOutputIds {
+    static let host = "host"
 }
 
 struct PlayRequest: Encodable {

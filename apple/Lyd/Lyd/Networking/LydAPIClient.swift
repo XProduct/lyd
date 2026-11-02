@@ -147,12 +147,69 @@ final class LydAPIClient: @unchecked Sendable {
         try await post("api/v1/playback/volume", body: VolumeRequest(level: clamped))
     }
 
+    /// Phase E: multi-select Playing on (host and/or registered players).
+    func setPlaybackOutputs(_ targets: [PlaybackOutputTargetDto]) async throws {
+        try await post(
+            "api/v1/playback/output",
+            body: PlaybackOutputRequest(target: nil, deviceId: nil, deviceName: nil, targets: targets)
+        )
+    }
+
+    /// Legacy single-target output (older hosts without Targets).
+    func setPlaybackOutput(target: String, deviceId: String?, deviceName: String?) async throws {
+        try await post(
+            "api/v1/playback/output",
+            body: PlaybackOutputRequest(target: target, deviceId: deviceId, deviceName: deviceName, targets: nil)
+        )
+    }
+
+    func listPlayers() async throws -> [PlayerDto] {
+        let response: PlayersResponse = try await get("api/v1/players")
+        return response.players ?? []
+    }
+
+    /// Phase E: report playhead while this device is the audio renderer.
+    func playbackHeartbeat(deviceId: String, positionMs: Int64, durationMs: Int64?, songId: String?) async throws {
+        try await post(
+            "api/v1/playback/heartbeat",
+            body: PlaybackHeartbeatRequest(
+                deviceId: deviceId,
+                positionMs: positionMs,
+                durationMs: durationMs,
+                songId: songId
+            )
+        )
+    }
+
+    func registerPlayer(deviceId: String, name: String, platform: String) async throws {
+        try await post(
+            "api/v1/players/register",
+            body: PlayerRegisterRequest(
+                deviceId: deviceId,
+                name: name,
+                platform: platform,
+                capabilities: ["play"]
+            )
+        )
+    }
+
+    func unregisterPlayer(deviceId: String) async throws {
+        let encoded = deviceId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? deviceId
+        try await delete("api/v1/players/\(encoded)")
+    }
+
     func coverURL(for relativeOrAbsolute: String?) -> URL? {
         guard let value = relativeOrAbsolute, !value.isEmpty else { return nil }
         if let absolute = URL(string: value), absolute.scheme != nil {
             return absolute
         }
         return URL(string: value, relativeTo: baseURL)?.absoluteURL
+    }
+
+    /// Phase E: original-file stream URL for AVPlayer (`Range`-capable on the host).
+    func streamURL(songId: String) -> URL? {
+        let encoded = songId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? songId
+        return URL(string: "api/v1/stream/songs/\(encoded)", relativeTo: baseURL)?.absoluteURL
     }
 
     // MARK: - HTTP
@@ -209,6 +266,12 @@ final class LydAPIClient: @unchecked Sendable {
 
     private func postEmpty(_ path: String) async throws {
         let request = try makeRequest(path: path, method: "POST")
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+    }
+
+    private func delete(_ path: String) async throws {
+        let request = try makeRequest(path: path, method: "DELETE")
         let (data, response) = try await perform(request)
         try validate(response, data: data)
     }

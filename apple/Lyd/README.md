@@ -51,10 +51,12 @@ xcodebuild -project Lyd.xcodeproj -scheme Lyd \
 - Manual IP:port fallback
 - Library sync (songs / albums / covers) with revision polling (~4s)
 - Playback: play, pause/playpause, next/prev, shuffle, seek, volume; state poll (~1s)
-- Local Network usage string + Bonjour service `_lyd._tcp` in Info.plist
+- Phase E1: **Playing on** Host vs This device — AVPlayer streams originals via `GET /api/v1/stream/songs/{id}`; device volume only when local output
+- Local Network usage string + Bonjour service `_lyd._tcp` + background audio in Info.plist
 
 ## Notes
 
 - Trusted LAN only (no TLS/auth in this phase).
-- Volume uses irrKlang scale `0.0…1.0`.
+- Host volume uses irrKlang scale `0.0…1.0`; when Playing on this device, the slider drives AVPlayer volume only.
 - JSON property names match Newtonsoft PascalCase from the Windows host.
+- One shared session per host — remotes control the same queue/playhead; Playing on only moves where audio renders.

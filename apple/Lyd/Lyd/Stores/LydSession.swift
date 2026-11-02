@@ -45,13 +45,71 @@ final class LydSession: ObservableObject {
     @Published private(set) var isHostReachable = false
     @Published private(set) var offlineMessage: String?
     @Published var manualValidateResult: ManualValidateResult = .idle
+    /// Sticky: once we have seen albums this connection, never flash the hydrating empty overlay.
+    @Published private(set) var hasLoadedAlbumCatalog = false
+    /// Sticky: once we have seen songs this connection, never flash the songs hydrating empty overlay.
+    @Published private(set) var hasLoadedSongCatalog = false
+    /// Phase E: multi-select Playing on device ids (`LydOutputIds.host` and/or player ids).
+    @Published private(set) var outputTargetIds: Set<String> = [LydOutputIds.host]
+    /// Other registered Apple players on this host (excludes this device in the UI list).
+    @Published private(set) var registeredPlayers: [PlayerDto] = []
 
     let browser = BonjourBrowser()
+    let localPlayer = LocalStreamPlayer()
 
     private var client: LydAPIClient?
     private var libraryPollTask: Task<Void, Never>?
     private var playbackPollTask: Task<Void, Never>?
+    private var playerHeartbeatTask: Task<Void, Never>?
     private var connectSource: ConnectSource = .unknown
+    private var localPlayerConfigured = false
+    private var localPlayerCancellables = Set<AnyCancellable>()
+    /// Last seek generation applied to AVPlayer (host bumps on seek / track start).
+    private var lastAppliedSeekGeneration: Int64 = -1
+    /// Suppress host→local play/pause echo for a moment after local transport.
+    private var ignoreHostTransportUntil: Date?
+    private var lastPlayerRegisterAt: Date?
+    /// Optimistic Playing on selection — polls must not clobber until host matches or grace ends.
+    private var pendingOutputTargetIds: Set<String>?
+    private var pendingOutputUntil: Date?
+
+    /// This device is checked in Playing on → AVPlayer renders; unchecked = remote-only UI.
+    var isLocalAudioOutput: Bool { outputTargetIds.contains(DeviceIdentity.deviceId) }
+
+    var isHostAudioOutput: Bool { outputTargetIds.contains(LydOutputIds.host) }
+
+    /// Volume UI should drive the device AVPlayer only when this device is an output.
+    var usesDeviceVolume: Bool { isLocalAudioOutput }
+
+    var effectiveIsPlaying: Bool {
+        isLocalAudioOutput ? localPlayer.isPlaying : playback.isPlaying
+    }
+
+    var effectivePositionMs: Int64 {
+        isLocalAudioOutput ? localPlayer.positionMs : playback.positionMs
+    }
+
+    var effectiveDurationMs: Int64 {
+        if isLocalAudioOutput, localPlayer.durationMs > 0 {
+            return localPlayer.durationMs
+        }
+        return playback.durationMs
+    }
+
+    var playingOnSummary: String {
+        var parts: [String] = []
+        if isHostAudioOutput {
+            parts.append(selectedDisplayName.isEmpty ? "Host" : selectedDisplayName)
+        }
+        if isLocalAudioOutput {
+            parts.append("This device")
+        }
+        for player in registeredPlayers where outputTargetIds.contains(player.deviceId)
+            && player.deviceId != DeviceIdentity.deviceId {
+            parts.append(player.displayName)
+        }
+        return parts.isEmpty ? "None" : parts.joined(separator: ", ")
+    }
 
     private enum ConnectSource {
         case bonjour
@@ -64,8 +122,24 @@ final class LydSession: ObservableObject {
     }
 
     /// Connected to a healthy host but catalog not populated yet (Dropbox / scan).
+    /// Once either catalog has loaded this session, stop treating empty polls as “still loading”.
     var isLibraryStillLoading: Bool {
-        phase == .connected && isHostReachable && library.songs.isEmpty && library.albums.isEmpty
+        phase == .connected
+            && isHostReachable
+            && !hasLoadedAlbumCatalog
+            && !hasLoadedSongCatalog
+            && library.songs.isEmpty
+            && library.albums.isEmpty
+    }
+
+    /// Albums tab empty overlay — never cover a previously loaded grid during poll churn.
+    var shouldShowAlbumsEmptyState: Bool {
+        library.albums.isEmpty && !hasLoadedAlbumCatalog
+    }
+
+    /// Songs tab empty overlay — same latch as albums.
+    var shouldShowSongsEmptyState: Bool {
+        library.songs.isEmpty && !hasLoadedSongCatalog
     }
 
     func songs(for album: AlbumDto) -> [SongDto] {
@@ -128,12 +202,26 @@ final class LydSession: ObservableObject {
     func disconnect(returnToPicker: Bool = true) {
         libraryPollTask?.cancel()
         playbackPollTask?.cancel()
+        playerHeartbeatTask?.cancel()
         libraryPollTask = nil
         playbackPollTask = nil
+        playerHeartbeatTask = nil
+        let outgoing = client
+        Task {
+            try? await outgoing?.unregisterPlayer(deviceId: DeviceIdentity.deviceId)
+        }
+        localPlayer.stop()
+        outputTargetIds = [LydOutputIds.host]
+        pendingOutputTargetIds = nil
+        pendingOutputUntil = nil
+        registeredPlayers = []
+        lastAppliedSeekGeneration = -1
         client = nil
         isHostReachable = false
         offlineMessage = nil
         library = LibraryDto(songs: [], albums: [], revision: -1)
+        hasLoadedAlbumCatalog = false
+        hasLoadedSongCatalog = false
         playback = PlaybackStateDto(
             isPlaying: false,
             shuffle: false,
@@ -182,7 +270,7 @@ final class LydSession: ObservableObject {
             case .unchanged:
                 markReachable()
             case .updated(let next):
-                library = next
+                applyLibraryUpdate(next, force: force)
                 markReachable()
             }
         } catch {
@@ -190,14 +278,154 @@ final class LydSession: ObservableObject {
         }
     }
 
+    /// Avoid blanking tvOS/iOS grids: skip no-op publishes and keep stable album/song identities.
+    /// Shared by iOS and tvOS — no platform split.
+    private func applyLibraryUpdate(_ next: LibraryDto, force: Bool) {
+        if !force,
+           library.revision >= 0,
+           next.revision == library.revision {
+            noteLibraryContentLoaded(library)
+            return
+        }
+
+        // Host scan/hydration can briefly return an empty catalog with a bumped revision.
+        // Never wipe a populated grid unless this is an explicit force refresh.
+        if !force {
+            let nextFullyEmpty = next.albums.isEmpty && next.songs.isEmpty
+            let currentPopulated = !library.albums.isEmpty || !library.songs.isEmpty
+            if nextFullyEmpty, currentPopulated {
+                if next.revision != library.revision {
+                    library = LibraryDto(
+                        songs: library.songs,
+                        albums: library.albums,
+                        revision: next.revision
+                    )
+                }
+                noteLibraryContentLoaded(library)
+                return
+            }
+        }
+
+        let sameAlbumIDs = library.albums.map(\.id) == next.albums.map(\.id)
+        let sameSongIDs = library.songs.map(\.id) == next.songs.map(\.id)
+        if !force, sameAlbumIDs, sameSongIDs {
+            let albumsEqual = zip(library.albums, next.albums).allSatisfy { $0 == $1 }
+            let songsEqual = zip(library.songs, next.songs).allSatisfy { $0 == $1 }
+            if albumsEqual, songsEqual {
+                // Equivalent catalog — bump revision only, keep the same album/song arrays.
+                if next.revision != library.revision {
+                    library = LibraryDto(
+                        songs: library.songs,
+                        albums: library.albums,
+                        revision: next.revision
+                    )
+                }
+                noteLibraryContentLoaded(library)
+                return
+            }
+        }
+
+        let merged = Self.mergingLibrary(current: library, next: next, force: force)
+        library = merged
+        noteLibraryContentLoaded(merged)
+    }
+
+    private func noteLibraryContentLoaded(_ dto: LibraryDto) {
+        if !dto.albums.isEmpty { hasLoadedAlbumCatalog = true }
+        if !dto.songs.isEmpty { hasLoadedSongCatalog = true }
+    }
+
+    /// Reuse equal album/song values by id so SwiftUI ForEach identity stays calm across polls.
+    /// When `force` is false, keep prior albums/songs if the incoming side is empty.
+    private static func mergingLibrary(current: LibraryDto, next: LibraryDto, force: Bool) -> LibraryDto {
+        let oldAlbums = Dictionary(uniqueKeysWithValues: current.albums.map { ($0.id, $0) })
+        let oldSongs = Dictionary(uniqueKeysWithValues: current.songs.map { ($0.id, $0) })
+
+        let incomingAlbums: [AlbumDto]
+        if !force, next.albums.isEmpty, !current.albums.isEmpty {
+            incomingAlbums = current.albums
+        } else {
+            incomingAlbums = next.albums.map { album -> AlbumDto in
+                if let old = oldAlbums[album.id], old == album { return old }
+                return album
+            }
+        }
+
+        let incomingSongs: [SongDto]
+        if !force, next.songs.isEmpty, !current.songs.isEmpty {
+            incomingSongs = current.songs
+        } else {
+            incomingSongs = next.songs.map { song -> SongDto in
+                if let old = oldSongs[song.id], old == song { return old }
+                return song
+            }
+        }
+
+        return LibraryDto(songs: incomingSongs, albums: incomingAlbums, revision: next.revision)
+    }
+
     func refreshPlayback() async {
         guard let client else { return }
         do {
-            playback = try await client.playbackState()
+            let remote = try await client.playbackState()
             markReachable()
+            await applyHostPlaybackState(remote)
         } catch {
             markUnreachable(error)
         }
+    }
+
+    /// Phase E: toggle one Playing on target (host / this device / other registered player).
+    func setOutputTarget(deviceId: String, enabled: Bool) async {
+        guard client != nil else { return }
+        var next = outputTargetIds
+        if enabled {
+            next.insert(deviceId)
+        } else {
+            next.remove(deviceId)
+        }
+        // Never allow an empty set — that silences every renderer and looks like “play does nothing”.
+        if next.isEmpty {
+            next.insert(LydOutputIds.host)
+        }
+        await applyOutputTargets(next)
+    }
+
+    func applyOutputTargets(_ ids: Set<String>) async {
+        guard client != nil else { return }
+        let normalized = Self.nonEmptyOutputTargets(ids)
+        let previousLocal = isLocalAudioOutput
+        let wasPlaying = effectiveIsPlaying
+        let position = effectivePositionMs
+        let songId = playback.currentSongId
+
+        // Optimistic UI first — hold off host poll overwrites until confirmed.
+        outputTargetIds = normalized
+        pendingOutputTargetIds = normalized
+        pendingOutputUntil = Date().addingTimeInterval(3.0)
+        let nowLocal = isLocalAudioOutput
+
+        configureLocalPlayerIfNeeded()
+        async let registered: Void = registerThisPlayer()
+        async let pushed: Void = pushOutputTargetsToHost()
+
+        if nowLocal, !previousLocal {
+            lastAppliedSeekGeneration = playback.seekGeneration ?? lastAppliedSeekGeneration
+            if let songId {
+                await startLocalStream(songId: songId, atMs: position, autoplay: wasPlaying)
+            }
+        } else if !nowLocal, previousLocal {
+            localPlayer.stop()
+        }
+
+        await registered
+        await pushed
+        if nowLocal {
+            await reportPlaybackHeartbeat()
+        }
+        await refreshPlayers()
+        // Refresh song/transport only; syncOutputTargets respects pending until host matches.
+        await refreshPlayback()
     }
 
     /// Foreground / Retry: ping health then resume polls if the host is back.
@@ -234,27 +462,64 @@ final class LydSession: ObservableObject {
 
     func play(songId: String) async {
         selectedTab = .nowPlaying
+        await ensurePlaybackOutputsReady()
+        if isLocalAudioOutput {
+            // Optimistic stream start — host mutate catches up; same songId avoids restart.
+            ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+        }
         await mutate { try await $0.play(songId: songId) }
+        // If host ack left us local but AVPlayer never started (race / failed first start), retry.
+        if isLocalAudioOutput, localPlayer.currentSongId != songId || (!localPlayer.isPlaying && playback.isPlaying) {
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+        } else if isLocalAudioOutput, !localPlayer.isPlaying, localPlayer.currentSongId == songId {
+            localPlayer.resume()
+        }
     }
 
     /// Shuffle off + play album in disc/track order (Windows `play-album`).
     func playAlbum(albumId: String) async {
         selectedTab = .nowPlaying
+        await ensurePlaybackOutputsReady()
         await mutate { client in
             try? await client.shuffle(enabled: false)
             try await client.playAlbum(albumId: albumId)
         }
+        if isLocalAudioOutput, let songId = playback.currentSongId {
+            ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
+            await startLocalStream(songId: songId, atMs: 0, autoplay: true)
+        }
     }
 
     func playPause() async {
+        if isLocalAudioOutput {
+            localPlayer.playPause()
+            ignoreHostTransportUntil = Date().addingTimeInterval(0.8)
+            // Toggle shared session desired playing (host keeps irrKlang silent).
+            try? await client?.playPause()
+            await reportPlaybackHeartbeat()
+            return
+        }
         await mutate { try await $0.playPause() }
     }
 
     func pause() async {
+        if isLocalAudioOutput {
+            localPlayer.pause()
+            ignoreHostTransportUntil = Date().addingTimeInterval(0.8)
+            try? await client?.pause()
+            await reportPlaybackHeartbeat()
+            return
+        }
         await mutate { try await $0.pause() }
     }
 
     func next() async {
+        if isLocalAudioOutput,
+           let peek = predictedNextSong(after: playback.currentSong) {
+            ignoreHostTransportUntil = Date().addingTimeInterval(1.0)
+            await startLocalStream(songId: peek.id, atMs: 0, autoplay: true)
+        }
         await mutate { try await $0.next() }
     }
 
@@ -267,12 +532,25 @@ final class LydSession: ObservableObject {
     }
 
     func seek(positionMs: Int64) async {
+        if isLocalAudioOutput {
+            await localPlayer.seek(positionMs: positionMs)
+            ignoreHostTransportUntil = Date().addingTimeInterval(0.8)
+            try? await client?.seek(positionMs: positionMs)
+            await reportPlaybackHeartbeat()
+            return
+        }
         await mutate { try await $0.seek(positionMs: positionMs) }
     }
 
     func setVolume(_ level: Double) async {
-        playback.volume = level
-        await mutate { try await $0.setVolume(level: level) }
+        let clamped = min(max(level, 0), 1)
+        if isLocalAudioOutput {
+            localPlayer.volume = Float(clamped)
+            playback.volume = clamped
+            return
+        }
+        playback.volume = clamped
+        await mutate { try await $0.setVolume(level: clamped) }
     }
 
     // MARK: - Private
@@ -312,7 +590,22 @@ final class LydSession: ObservableObject {
                 selectedDisplayName = resolvedName
                 let lib = try await api.library()
                 library = lib
+                noteLibraryContentLoaded(lib)
                 playback = try await api.playbackState()
+                configureLocalPlayerIfNeeded()
+                await registerThisPlayer()
+                lastAppliedSeekGeneration = playback.seekGeneration ?? -1
+                syncOutputTargets(from: playback)
+                // Heal empty Playing on from host and push a real renderer before first play.
+                await ensurePlaybackOutputsReady()
+                if isLocalAudioOutput, let songId = playback.currentSongId {
+                    await startLocalStream(
+                        songId: songId,
+                        atMs: playback.positionMs,
+                        autoplay: playback.isPlaying
+                    )
+                }
+                await refreshPlayers()
                 phase = .connected
                 markReachable()
                 startPolling()
@@ -332,6 +625,7 @@ final class LydSession: ObservableObject {
     private func startPolling() {
         libraryPollTask?.cancel()
         playbackPollTask?.cancel()
+        playerHeartbeatTask?.cancel()
 
         libraryPollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -346,6 +640,19 @@ final class LydSession: ObservableObject {
                 await self?.refreshPlayback()
             }
         }
+
+        playerHeartbeatTask = Task { [weak self] in
+            var ticks = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                ticks += 1
+                await self?.registerThisPlayer(force: false)
+                await self?.reportPlaybackHeartbeat()
+                if ticks % 5 == 0 {
+                    await self?.refreshPlayers()
+                }
+            }
+        }
     }
 
     private func mutate(_ work: (LydAPIClient) async throws -> Void) async {
@@ -354,12 +661,293 @@ final class LydSession: ObservableObject {
         defer { isBusy = false }
         do {
             try await work(client)
-            playback = try await client.playbackState()
+            let remote = try await client.playbackState()
+            await applyHostPlaybackState(remote)
             statusMessage = nil
             markReachable()
         } catch {
             statusMessage = error.localizedDescription
             markUnreachable(error)
+        }
+    }
+
+    private func configureLocalPlayerIfNeeded() {
+        guard !localPlayerConfigured else { return }
+        localPlayerConfigured = true
+        localPlayer.configureAudioSession()
+        localPlayer.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &localPlayerCancellables)
+        localPlayer.onFinished = { [weak self] in
+            Task { @MainActor in
+                guard let self, self.isLocalAudioOutput else { return }
+                await self.next()
+            }
+        }
+    }
+
+    /// Guarantees at least one renderer before play/seek transport hits the host.
+    private func ensurePlaybackOutputsReady() async {
+        let normalized = Self.nonEmptyOutputTargets(outputTargetIds)
+        if normalized != outputTargetIds {
+            outputTargetIds = normalized
+        }
+        pendingOutputTargetIds = normalized
+        pendingOutputUntil = Date().addingTimeInterval(3.0)
+        await pushOutputTargetsToHost()
+    }
+
+    private static func nonEmptyOutputTargets(_ ids: Set<String>) -> Set<String> {
+        ids.isEmpty ? [LydOutputIds.host] : ids
+    }
+
+    private func pushOutputTargetsToHost() async {
+        guard let client else { return }
+        let ids = Self.nonEmptyOutputTargets(outputTargetIds)
+        if ids != outputTargetIds {
+            outputTargetIds = ids
+        }
+        let targets = ids.map { id -> PlaybackOutputTargetDto in
+            if id == LydOutputIds.host {
+                return PlaybackOutputTargetDto(deviceId: LydOutputIds.host, deviceName: selectedDisplayName)
+            }
+            if id == DeviceIdentity.deviceId {
+                return PlaybackOutputTargetDto(deviceId: id, deviceName: DeviceIdentity.displayName)
+            }
+            let name = registeredPlayers.first(where: { $0.deviceId == id })?.displayName
+            return PlaybackOutputTargetDto(deviceId: id, deviceName: name ?? id)
+        }
+        do {
+            try await client.setPlaybackOutputs(targets)
+        } catch {
+            // Legacy single-target recovery must match the user's selection.
+            // Never POST host-only when This device (or any non-host target) is selected —
+            // that was wiping multi / This-device picks and stopping AVPlayer.
+            if ids == [LydOutputIds.host] {
+                try? await client.setPlaybackOutput(target: "host", deviceId: nil, deviceName: nil)
+            } else if ids.contains(DeviceIdentity.deviceId) {
+                try? await client.setPlaybackOutput(
+                    target: "remote",
+                    deviceId: DeviceIdentity.deviceId,
+                    deviceName: DeviceIdentity.displayName
+                )
+            }
+            // Other remotes-only / unknown: leave host state alone rather than force host.
+        }
+    }
+
+    private func refreshPlayers() async {
+        guard let client else { return }
+        do {
+            let players = try await client.listPlayers()
+            registeredPlayers = players
+                .filter { $0.deviceId != DeviceIdentity.deviceId }
+                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        } catch {
+            // Older hosts without /players — keep empty list.
+        }
+    }
+
+    private func syncOutputTargets(from remote: PlaybackStateDto) {
+        let remoteIds = resolvedOutputTargetIds(from: remote)
+
+        if let pending = pendingOutputTargetIds {
+            let pendingNormalized = Self.nonEmptyOutputTargets(pending)
+            if let remoteIds, remoteIds == pendingNormalized {
+                pendingOutputTargetIds = nil
+                pendingOutputUntil = nil
+                outputTargetIds = remoteIds
+                return
+            }
+            // Stale poll / in-flight POST — keep optimistic selection.
+            if let until = pendingOutputUntil, Date() < until {
+                outputTargetIds = pendingNormalized
+                return
+            }
+            // Grace expired but host still disagrees. Never let a lagging host-only
+            // (or missing) poll clobber a user pick that includes This device / remotes —
+            // that stopped AVPlayer after a brief play. Stay sticky and re-push.
+            let remoteIsHostOnly = remoteIds == nil || remoteIds == [LydOutputIds.host]
+            let pendingWantsMoreThanHost = pendingNormalized != [LydOutputIds.host]
+            if pendingWantsMoreThanHost, remoteIsHostOnly || !(remoteIds?.isSuperset(of: pendingNormalized) ?? false) {
+                outputTargetIds = pendingNormalized
+                pendingOutputUntil = Date().addingTimeInterval(3.0)
+                Task { await self.pushOutputTargetsToHost() }
+                return
+            }
+            // Grace expired: accept host if we can resolve it; otherwise keep local non-empty.
+            pendingOutputTargetIds = nil
+            pendingOutputUntil = nil
+            if let remoteIds {
+                outputTargetIds = Self.nonEmptyOutputTargets(remoteIds)
+            } else if outputTargetIds.isEmpty {
+                outputTargetIds = [LydOutputIds.host]
+            }
+            return
+        }
+
+        guard let remoteIds else {
+            // Missing output fields — heal empty local selection only.
+            if outputTargetIds.isEmpty {
+                outputTargetIds = [LydOutputIds.host]
+            }
+            return
+        }
+        // Don't let steady-state polls drop This device to host-only while AVPlayer
+        // is actively rendering that selection (host lag / partial apply).
+        if outputTargetIds.contains(DeviceIdentity.deviceId),
+           !remoteIds.contains(DeviceIdentity.deviceId),
+           remoteIds == [LydOutputIds.host],
+           localPlayer.currentSongId != nil {
+            pendingOutputTargetIds = outputTargetIds
+            pendingOutputUntil = Date().addingTimeInterval(3.0)
+            Task { await self.pushOutputTargetsToHost() }
+            return
+        }
+        outputTargetIds = Self.nonEmptyOutputTargets(remoteIds)
+    }
+
+    /// `nil` = host omitted output info (don't clobber). Empty list is treated as host.
+    private func resolvedOutputTargetIds(from remote: PlaybackStateDto) -> Set<String>? {
+        if let targets = remote.outputTargets {
+            let ids = Set(targets.map(\.deviceId))
+            // Empty OutputTargets from host previously silenced every renderer.
+            return ids.isEmpty ? [LydOutputIds.host] : ids
+        }
+        // Legacy single-target fields only when OutputTargets is absent.
+        switch remote.outputTarget {
+        case "remote":
+            if let id = remote.outputDeviceId, !id.isEmpty {
+                return [id]
+            }
+            return nil
+        case "multi":
+            var ids: Set<String> = [LydOutputIds.host]
+            if let id = remote.outputDeviceId, !id.isEmpty {
+                ids.insert(id)
+            }
+            return ids
+        case "host":
+            return [LydOutputIds.host]
+        default:
+            return nil
+        }
+    }
+
+    private func startLocalStream(songId: String, atMs: Int64, autoplay: Bool) async {
+        guard let client, let url = client.streamURL(songId: songId) else {
+            statusMessage = "Stream URL unavailable"
+            return
+        }
+        configureLocalPlayerIfNeeded()
+        // Same URL already rendering — just seek / resume instead of replacing the item.
+        if localPlayer.currentSongId == songId {
+            if atMs > 0 {
+                await localPlayer.seek(positionMs: atMs)
+            }
+            if autoplay {
+                localPlayer.resume()
+            } else {
+                localPlayer.pause()
+            }
+            return
+        }
+        localPlayer.play(url: url, songId: songId, startAtMs: max(0, atMs), autoplay: autoplay)
+        // Do NOT POST pause here — that clears shared session desired-playing.
+    }
+
+    private func registerThisPlayer(force: Bool = true) async {
+        guard let client, phase == .connected || phase == .connecting else { return }
+        if !force, let last = lastPlayerRegisterAt, Date().timeIntervalSince(last) < 15 {
+            return
+        }
+        try? await client.registerPlayer(
+            deviceId: DeviceIdentity.deviceId,
+            name: DeviceIdentity.displayName,
+            platform: DeviceIdentity.platform
+        )
+        lastPlayerRegisterAt = Date()
+    }
+
+    private func reportPlaybackHeartbeat() async {
+        guard isLocalAudioOutput, let client else { return }
+        try? await client.playbackHeartbeat(
+            deviceId: DeviceIdentity.deviceId,
+            positionMs: localPlayer.positionMs,
+            durationMs: localPlayer.durationMs > 0 ? localPlayer.durationMs : nil,
+            songId: localPlayer.currentSongId ?? playback.currentSongId
+        )
+    }
+
+    private func applyHostPlaybackState(_ remote: PlaybackStateDto) async {
+        let previouslyLocal = isLocalAudioOutput
+        syncOutputTargets(from: remote)
+        let nowLocal = isLocalAudioOutput
+
+        if nowLocal {
+            var merged = remote
+            merged.positionMs = localPlayer.positionMs
+            if localPlayer.durationMs > 0 {
+                merged.durationMs = localPlayer.durationMs
+            }
+            merged.volume = Double(localPlayer.volume)
+            let suppressTransport = ignoreHostTransportUntil.map { Date() < $0 } ?? false
+            if !suppressTransport {
+                merged.isPlaying = remote.isPlaying
+            } else {
+                merged.isPlaying = localPlayer.isPlaying
+            }
+            playback = merged
+
+            if !previouslyLocal, let songId = remote.currentSongId {
+                lastAppliedSeekGeneration = remote.seekGeneration ?? -1
+                await startLocalStream(
+                    songId: songId,
+                    atMs: remote.positionMs,
+                    autoplay: remote.isPlaying
+                )
+                return
+            }
+
+            let songId = remote.currentSongId
+            if let songId, songId != localPlayer.currentSongId {
+                lastAppliedSeekGeneration = remote.seekGeneration ?? lastAppliedSeekGeneration
+                await startLocalStream(
+                    songId: songId,
+                    atMs: remote.positionMs,
+                    autoplay: remote.isPlaying
+                )
+                return
+            }
+
+            if songId == nil, localPlayer.currentSongId != nil {
+                localPlayer.stop()
+                return
+            }
+
+            let generation = remote.seekGeneration ?? 0
+            if generation != lastAppliedSeekGeneration {
+                lastAppliedSeekGeneration = generation
+                if abs(remote.positionMs - localPlayer.positionMs) > 1500 {
+                    await localPlayer.seek(positionMs: remote.positionMs)
+                }
+            }
+
+            if !suppressTransport {
+                if remote.isPlaying, !localPlayer.isPlaying {
+                    localPlayer.resume()
+                } else if !remote.isPlaying, localPlayer.isPlaying {
+                    localPlayer.pause()
+                }
+            }
+        } else {
+            if previouslyLocal {
+                localPlayer.stop()
+            }
+            playback = remote
         }
     }
 

@@ -1640,6 +1640,11 @@ namespace FlacPlayer.ViewModel
 
             if (IsSelectedAlbumVisible)
             {
+                if (SelectedAlbumSongs == null || CurrentPlayingSong == null)
+                {
+                    return;
+                }
+
                 if (IsShuffleMode)
                 {
                     CurrentPlayQueue = new ObservableCollection<Song>(SelectedAlbumSongs.Shuffle());
@@ -1648,7 +1653,24 @@ namespace FlacPlayer.ViewModel
                 }
                 else
                 {
-                    for (var i = (SelectedAlbumSongs.IndexOf(CurrentPlayingSong)); i < SelectedAlbumSongs.Count; i++)
+                    int start = SelectedAlbumSongs.IndexOf(CurrentPlayingSong);
+                    if (start < 0)
+                    {
+                        // Song not in the open album context (stale detail / cross-album play) —
+                        // fall back to library order instead of indexing at -1 (throws, kills remote play).
+                        start = Songs.IndexOf(CurrentPlayingSong);
+                        if (start < 0)
+                        {
+                            CurrentPlayQueue.Add(CurrentPlayingSong);
+                            return;
+                        }
+                        for (var i = start; i < Songs.Count; i++)
+                        {
+                            CurrentPlayQueue.Add(Songs[i]);
+                        }
+                        return;
+                    }
+                    for (var i = start; i < SelectedAlbumSongs.Count; i++)
                     {
                         CurrentPlayQueue.Add(SelectedAlbumSongs[i]);
                     }
@@ -1664,7 +1686,13 @@ namespace FlacPlayer.ViewModel
                 {
                     if (CurrentPlayingSong != null)
                     {
-                        for (var i = (Songs.IndexOf(CurrentPlayingSong)); i < Songs.Count; i++)
+                        int start = Songs.IndexOf(CurrentPlayingSong);
+                        if (start < 0)
+                        {
+                            CurrentPlayQueue.Add(CurrentPlayingSong);
+                            return;
+                        }
+                        for (var i = start; i < Songs.Count; i++)
                         {
                             CurrentPlayQueue.Add(Songs[i]);
                         }

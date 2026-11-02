@@ -5,6 +5,8 @@ struct AlbumsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #if os(tvOS)
     @FocusState private var focusedAlbumID: String?
+    /// Staggered entrance runs once per Albums tab appearance — not on every library poll.
+    @State private var playsEntranceAnimation = true
     #endif
 
     private var columns: [GridItem] {
@@ -32,21 +34,24 @@ struct AlbumsView: View {
                     .padding(.top, titleTopPadding)
 
                 LazyVGrid(columns: columns, alignment: .leading, spacing: gridSpacing) {
-                    ForEach(Array(session.library.albums.enumerated()), id: \.element.id) { index, album in
+                    ForEach(session.library.albums) { album in
                         #if os(tvOS)
                         TVAlbumPosterCell(
                             album: album,
                             coverURL: session.coverURL(for: album),
                             focusDepthScale: focusDepthScale(for: album.id),
-                            staggerIndex: index,
+                            staggerIndex: albumIndex(album.id),
+                            playsEntrance: playsEntranceAnimation,
                             reduceMotion: reduceMotion
                         )
                         .focused($focusedAlbumID, equals: album.id)
+                        .id(album.id)
                         #else
                         NavigationLink(value: album) {
                             AlbumCell(album: album, coverURL: session.coverURL(for: album))
                         }
                         .buttonStyle(.plain)
+                        .id(album.id)
                         #endif
                     }
                 }
@@ -57,6 +62,13 @@ struct AlbumsView: View {
                     reduceMotion ? nil : .easeOut(duration: 0.28),
                     value: focusedAlbumID
                 )
+                .onAppear {
+                    // After the first layout pass, library polls must not re-trigger fades.
+                    guard playsEntranceAnimation else { return }
+                    DispatchQueue.main.async {
+                        playsEntranceAnimation = false
+                    }
+                }
                 #endif
             }
         }
@@ -73,10 +85,15 @@ struct AlbumsView: View {
             HostOfflineBanner()
         }
         .overlay {
-            if session.library.albums.isEmpty {
+            // Sticky latch: once albums loaded, never cover the grid with hydrating empty UI.
+            if session.shouldShowAlbumsEmptyState {
                 LibraryEmptyState(libraryKind: .albums)
             }
         }
+    }
+
+    private func albumIndex(_ id: String) -> Int {
+        session.library.albums.firstIndex(where: { $0.id == id }) ?? 0
     }
 
     #if os(tvOS)
@@ -112,6 +129,8 @@ private struct TVAlbumPosterCell: View {
     let coverURL: URL?
     var focusDepthScale: CGFloat = 1
     var staggerIndex: Int = 0
+    /// False after the first Albums grid entrance — prevents poll-driven clear/fade.
+    var playsEntrance: Bool = false
     var reduceMotion: Bool = false
 
     @State private var appeared = false
@@ -151,17 +170,17 @@ private struct TVAlbumPosterCell: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .scaleEffect(focusDepthScale)
-        .opacity(appeared ? 1 : (reduceMotion ? 1 : 0))
-        .offset(y: appeared || reduceMotion ? 0 : 18)
+        .opacity(appeared || !playsEntrance || reduceMotion ? 1 : 0)
+        .offset(y: appeared || !playsEntrance || reduceMotion ? 0 : 18)
         .onAppear {
-            guard !appeared else { return }
-            if reduceMotion {
+            if !playsEntrance || reduceMotion {
                 appeared = true
-            } else {
-                let delay = min(Double(staggerIndex) * LydMotion.staggerStep, 0.6)
-                withAnimation(.easeOut(duration: 0.4).delay(delay)) {
-                    appeared = true
-                }
+                return
+            }
+            guard !appeared else { return }
+            let delay = min(Double(staggerIndex) * LydMotion.staggerStep, 0.6)
+            withAnimation(.easeOut(duration: 0.4).delay(delay)) {
+                appeared = true
             }
         }
     }
