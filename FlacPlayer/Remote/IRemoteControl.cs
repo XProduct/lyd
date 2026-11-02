@@ -4,6 +4,8 @@ namespace FlacPlayer.Remote
     {
         string DisplayName { get; }
         LibraryDto GetLibrary();
+        /// <summary>Current monotonic library revision (cheap; no catalog build).</summary>
+        int GetLibraryRevision();
         PlaybackStateDto GetPlaybackState();
         void PlaySong(string songId);
         void PlayAlbum(string albumId);

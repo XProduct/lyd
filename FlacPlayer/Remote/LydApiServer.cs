@@ -63,7 +63,9 @@ namespace FlacPlayer.Remote
         private static string[] BuildPrefixCandidates(int port)
         {
             var list = new System.Collections.Generic.List<string>();
+            // Strong wildcard: HTTP.sys dual-stack when URL ACL allows it.
             list.Add("http://+:" + port + "/");
+            list.Add("http://[::]:" + port + "/");
             try
             {
                 foreach (var ip in Dns.GetHostAddresses(Dns.GetHostName()))
@@ -71,6 +73,11 @@ namespace FlacPlayer.Remote
                     if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
                     {
                         list.Add("http://" + ip + ":" + port + "/");
+                    }
+                    else if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+                        && !ip.IsIPv6LinkLocal)
+                    {
+                        list.Add("http://[" + ip + "]:" + port + "/");
                     }
                 }
             }
@@ -161,20 +168,35 @@ namespace FlacPlayer.Remote
                     return;
                 }
 
+                if (method == "GET" && path == "/api/v1/library/revision")
+                {
+                    int rev = _control.GetLibraryRevision();
+                    WriteJsonWithEtag(context, 200, new { revision = rev }, rev);
+                    return;
+                }
+
                 if (method == "GET" && (path == "/api/v1/library" || path == "/api/v1/songs" || path == "/api/v1/albums"))
                 {
+                    int rev = _control.GetLibraryRevision();
+                    if (ClientHasCurrentRevision(context, rev))
+                    {
+                        WriteNotModified(context, rev);
+                        return;
+                    }
+
                     LibraryDto library = _control.GetLibrary();
+                    rev = library.Revision;
                     if (path == "/api/v1/songs")
                     {
-                        WriteJson(context, 200, new { songs = library.Songs, revision = library.Revision });
+                        WriteJsonWithEtag(context, 200, new { songs = library.Songs, revision = rev }, rev);
                     }
                     else if (path == "/api/v1/albums")
                     {
-                        WriteJson(context, 200, new { albums = library.Albums, revision = library.Revision });
+                        WriteJsonWithEtag(context, 200, new { albums = library.Albums, revision = rev }, rev);
                     }
                     else
                     {
-                        WriteJson(context, 200, library);
+                        WriteJsonWithEtag(context, 200, library, rev);
                     }
                     return;
                 }
@@ -339,6 +361,61 @@ namespace FlacPlayer.Remote
                 }
                 return JsonConvert.DeserializeObject<T>(json);
             }
+        }
+
+        private static bool ClientHasCurrentRevision(HttpListenerContext context, int currentRevision)
+        {
+            string ifNoneMatch = context.Request.Headers["If-None-Match"];
+            if (!string.IsNullOrEmpty(ifNoneMatch))
+            {
+                string etag = FormatEtag(currentRevision);
+                string[] parts = ifNoneMatch.Split(',');
+                for (int i = 0; i < parts.Length; i++)
+                {
+                    string token = parts[i].Trim();
+                    if (token == "*" || string.Equals(token, etag, StringComparison.Ordinal) ||
+                        string.Equals(token, "W/" + etag, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            string queryRev = context.Request.QueryString["revision"];
+            int clientRevision;
+            if (!string.IsNullOrEmpty(queryRev) && int.TryParse(queryRev, out clientRevision) &&
+                clientRevision == currentRevision)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static string FormatEtag(int revision)
+        {
+            return "\"" + revision.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\"";
+        }
+
+        private static void WriteNotModified(HttpListenerContext context, int revision)
+        {
+            context.Response.StatusCode = 304;
+            context.Response.Headers["ETag"] = FormatEtag(revision);
+            context.Response.Headers["Cache-Control"] = "no-cache";
+            context.Response.ContentLength64 = 0;
+            context.Response.OutputStream.Close();
+        }
+
+        private static void WriteJsonWithEtag(HttpListenerContext context, int status, object body, int revision)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(body));
+            context.Response.StatusCode = status;
+            context.Response.ContentType = "application/json; charset=utf-8";
+            context.Response.Headers["ETag"] = FormatEtag(revision);
+            context.Response.Headers["Cache-Control"] = "no-cache";
+            context.Response.ContentLength64 = bytes.LongLength;
+            context.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            context.Response.OutputStream.Close();
         }
 
         private static void WriteJson(HttpListenerContext context, int status, object body)

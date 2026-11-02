@@ -25,6 +25,11 @@ namespace FlacPlayer.Remote
             return _vm.BuildRemoteLibrary();
         }
 
+        public int GetLibraryRevision()
+        {
+            return _vm.GetLibraryRevision();
+        }
+
         public PlaybackStateDto GetPlaybackState()
         {
             return _vm.BuildRemotePlaybackState();
