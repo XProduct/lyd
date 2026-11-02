@@ -7,9 +7,16 @@ struct NowPlayingView: View {
     @State private var isScrubbing = false
     @State private var volumeDraft: Double = 0.5
     #if os(tvOS)
+    private enum TransportFocus: Hashable {
+        case previous
+        case playPause
+        case next
+    }
+
     @State private var cinemaMode = false
     @State private var idleReset = UUID()
     @FocusState private var cinemaSurfaceFocused: Bool
+    @FocusState private var transportFocus: TransportFocus?
     #endif
 
     private var song: SongDto? { session.playback.currentSong }
@@ -191,7 +198,9 @@ struct NowPlayingView: View {
         .onAppear {
             volumeDraft = session.playback.volume
             bumpIdleTimer()
+            transportFocus = .playPause
         }
+        .defaultFocus($transportFocus, .playPause)
         .onChange(of: session.playback.currentSongId) { _, _ in
             bumpIdleTimer()
         }
@@ -438,6 +447,8 @@ struct NowPlayingView: View {
     private func bumpIdleTimer() {
         cinemaMode = false
         idleReset = UUID()
+        // Prefer play/pause after waking from cinema or any remote activity reset.
+        transportFocus = .playPause
     }
 
     private func nextCoverURL(for song: SongDto) -> URL? {
@@ -511,6 +522,9 @@ struct NowPlayingView: View {
                     .foregroundStyle(Color.primary)
                     .frame(width: 72, height: 72)
             }
+            #if os(tvOS)
+            .focused($transportFocus, equals: .previous)
+            #endif
 
             Button {
                 noteUserActivity()
@@ -524,6 +538,9 @@ struct NowPlayingView: View {
                         value: song?.albumId ?? song?.id
                     )
             }
+            #if os(tvOS)
+            .focused($transportFocus, equals: .playPause)
+            #endif
 
             Button {
                 noteUserActivity()
@@ -534,8 +551,14 @@ struct NowPlayingView: View {
                     .foregroundStyle(Color.primary)
                     .frame(width: 72, height: 72)
             }
+            #if os(tvOS)
+            .focused($transportFocus, equals: .next)
+            #endif
         }
         .buttonStyle(.plain)
+        #if os(tvOS)
+        .focusSection()
+        #endif
     }
 
     private func noteUserActivity() {
