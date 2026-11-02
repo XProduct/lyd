@@ -281,6 +281,15 @@
                     <TextBlock Text="API Port" VerticalAlignment="Center" Margin="0,0,8,0" />
                     <TextBox Width="72" Text="{Binding RemotePort, UpdateSourceTrigger=PropertyChanged}" />
                 </StackPanel>
+                <CheckBox Margin="0,12,0,0"
+                          IsChecked="{Binding AllowMultiOutput, Mode=TwoWay}"
+                          Content="Allow multi-room output"
+                          Foreground="{StaticResource Foreground}" />
+                <TextBlock Margin="24,4,0,0"
+                           TextWrapping="Wrap"
+                           Opacity="0.7"
+                           Foreground="{StaticResource Foreground}"
+                           Text="Off (default): Playing on selects one device. On: sync across multiple rooms — residual drift may remain." />
             </StackPanel>
 
             <Button Content="Save" Grid.Column="3" Grid.Row="7" HorizontalAlignment="Right" Command="{Binding SaveSettingsCommand}" />

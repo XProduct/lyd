@@ -86,6 +86,7 @@ namespace FlacPlayer.ViewModel
             // LAN remote API + mDNS
             _outputDeviceNames["host"] = RemoteDisplayName;
             RemotePort = WebSocketService.Port > 0 ? WebSocketService.Port : 8080;
+            LoadAllowMultiOutputPreference();
             LydRemoteInstructions = "Lyd Remote is starting...";
             WebSocketService.SetControl(new MainRemoteControl(this));
             try
@@ -1332,6 +1333,26 @@ namespace FlacPlayer.ViewModel
         }
         private int _remotePort = 8080;
 
+        /// <summary>
+        /// Settings: allow Playing on multi-select (multi-room sync). Default false = single output.
+        /// </summary>
+        public bool AllowMultiOutput
+        {
+            get { return _allowMultiOutput; }
+            set
+            {
+                if (_allowMultiOutput == value) return;
+                _allowMultiOutput = value;
+                RaisePropertyChanged(nameof(AllowMultiOutput));
+                try { PersistAllowMultiOutputPreference(); } catch { }
+                if (!_allowMultiOutput)
+                {
+                    CollapseOutputToSinglePreferred();
+                }
+            }
+        }
+        private bool _allowMultiOutput;
+
         /// <summary>Settings: mDNS instance name ("Discoverable as …").</summary>
         public string RemoteDiscoverableAs
         {
@@ -1880,6 +1901,11 @@ namespace FlacPlayer.ViewModel
                 {
                     WebSocketService.ApplyPort(RemotePort);
                 }
+                PersistAllowMultiOutputPreference();
+                if (!AllowMultiOutput)
+                {
+                    CollapseOutputToSinglePreferred();
+                }
                 RefreshRemoteDiscoverability();
             }
             catch (Exception ex)
@@ -1889,6 +1915,27 @@ namespace FlacPlayer.ViewModel
 
             RefreshSongs();
             SelectedMenuItem = "Songs";
+        }
+
+        private void LoadAllowMultiOutputPreference()
+        {
+            try
+            {
+                RemoteHostSettings settings = RemoteHostSettings.Load();
+                _allowMultiOutput = settings.AllowMultiOutput;
+                RaisePropertyChanged(nameof(AllowMultiOutput));
+            }
+            catch
+            {
+                _allowMultiOutput = false;
+            }
+        }
+
+        private void PersistAllowMultiOutputPreference()
+        {
+            RemoteHostSettings settings = RemoteHostSettings.Load();
+            settings.AllowMultiOutput = AllowMultiOutput;
+            settings.Save();
         }
 
         private void RefreshRemoteDiscoverability()
@@ -2344,6 +2391,11 @@ namespace FlacPlayer.ViewModel
                 nextIds.Add("host");
             }
 
+            if (!AllowMultiOutput && nextIds.Count > 1)
+            {
+                CollapseIdsToSingle(nextIds, nextNames, preferExisting: true);
+            }
+
             if (!nextNames.ContainsKey("host") && nextIds.Contains("host"))
             {
                 nextNames["host"] = RemoteDisplayName;
@@ -2453,6 +2505,84 @@ namespace FlacPlayer.ViewModel
         {
             string id = deviceId.Trim();
             return string.Equals(id, "host", StringComparison.OrdinalIgnoreCase) ? "host" : id;
+        }
+
+        /// <summary>
+        /// Single-output mode: keep one renderer. Prefer host, else a device already playing,
+        /// else the first remaining id.
+        /// </summary>
+        private void CollapseIdsToSingle(
+            HashSet<string> nextIds,
+            Dictionary<string, string> nextNames,
+            bool preferExisting)
+        {
+            if (nextIds == null || nextIds.Count <= 1)
+            {
+                return;
+            }
+
+            string keep = null;
+            if (nextIds.Contains("host"))
+            {
+                keep = "host";
+            }
+            else if (preferExisting)
+            {
+                keep = _outputDeviceIds.FirstOrDefault(id => nextIds.Contains(id));
+            }
+
+            if (string.IsNullOrEmpty(keep))
+            {
+                keep = nextIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+            }
+
+            if (string.IsNullOrEmpty(keep))
+            {
+                keep = "host";
+            }
+
+            nextIds.Clear();
+            nextIds.Add(keep);
+            if (nextNames != null)
+            {
+                var stale = nextNames.Keys
+                    .Where(k => !string.Equals(k, keep, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                foreach (string key in stale)
+                {
+                    nextNames.Remove(key);
+                }
+            }
+        }
+
+        /// <summary>When multi-room is turned off, collapse the live output set to one target.</summary>
+        private void CollapseOutputToSinglePreferred()
+        {
+            if (_outputDeviceIds.Count <= 1)
+            {
+                EnsureOutputSetNonEmpty();
+                return;
+            }
+
+            string keep = _outputDeviceIds.Contains("host")
+                ? "host"
+                : _outputDeviceIds.OrderBy(id => id, StringComparer.OrdinalIgnoreCase).First();
+
+            var request = new OutputRequest
+            {
+                DeviceIds = new[] { keep },
+                Devices = new[]
+                {
+                    new OutputDeviceDto
+                    {
+                        DeviceId = keep,
+                        Name = _outputDeviceNames.ContainsKey(keep) ? _outputDeviceNames[keep] : keep,
+                        IsHost = string.Equals(keep, "host", StringComparison.OrdinalIgnoreCase)
+                    }
+                }
+            };
+            // Bypass AllowMultiOutput gate by going through the normal path with a single id.
+            RemoteSetOutput(request);
         }
 
         /// <summary>Settings / Now Playing subtitle: where audio is rendering.</summary>

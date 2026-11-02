@@ -17,6 +17,12 @@ namespace FlacPlayer.Remote
         /// <summary>True when elevated rules were applied successfully.</summary>
         public bool FirewallConfigured { get; set; }
 
+        /// <summary>
+        /// When true, Playing on may select multiple renderers (multi-room sync).
+        /// Default false: single output only — tuned ears prefer one room without residual drift.
+        /// </summary>
+        public bool AllowMultiOutput { get; set; }
+
         private static string SettingsPath
         {
             get
