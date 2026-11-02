@@ -95,6 +95,16 @@ namespace FlacPlayer.Remote
 
         /// <summary>Bumped on seek / track start so Apple AVPlayer re-seeks (Phase E Apple field).</summary>
         public long SeekGeneration { get; set; }
+
+        /// <summary>
+        /// Phase F1: host wall-clock (Unix ms, UTC) when <see cref="PositionAtAnchorMs"/> was correct.
+        /// While playing, desired position ≈ PositionAtAnchorMs + (nowUnixMs − AnchorUnixMs).
+        /// Late joiners catch up alone from this timeline (host does not resync everyone).
+        /// </summary>
+        public long AnchorUnixMs { get; set; }
+
+        /// <summary>Phase F1: song playhead (ms) at <see cref="AnchorUnixMs"/>.</summary>
+        public long PositionAtAnchorMs { get; set; }
     }
 
     public sealed class OutputDeviceDto

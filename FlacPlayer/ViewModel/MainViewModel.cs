@@ -41,6 +41,9 @@ namespace FlacPlayer.ViewModel
         private long _transportSeq;
         /// <summary>Bumped on seek / new track so Apple AVPlayer re-seeks.</summary>
         private long _seekGeneration;
+        /// <summary>Phase F1: host timeline anchor (Unix UTC ms) + song position at that instant.</summary>
+        private long _anchorUnixMs;
+        private long _positionAtAnchorMs;
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
@@ -1412,6 +1415,8 @@ namespace FlacPlayer.ViewModel
                     _remotePositionWatch.Start();
                 }
             }
+            // Resume: re-pin timeline so remotes derive the same playhead (F1).
+            SetTimelineAnchor(GetSessionPositionMs());
             BumpTransportSeq();
         }
 
@@ -1457,6 +1462,7 @@ namespace FlacPlayer.ViewModel
                 CurrentPositionText = "0:00";
                 CurrentTrackDuration = 0;
                 PercentageComplete = 0;
+                SetTimelineAnchor(0);
             }
             BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
@@ -1475,6 +1481,8 @@ namespace FlacPlayer.ViewModel
                 _remoteSessionPlaying = false;
                 _remotePositionWatch.Stop();
             }
+            // Freeze timeline at the paused playhead (desired pos stays put while IsPlaying=false).
+            SetTimelineAnchor(GetSessionPositionMs());
             BumpTransportSeq();
         }
 
@@ -1500,6 +1508,43 @@ namespace FlacPlayer.ViewModel
         private void BumpSeekGeneration()
         {
             Interlocked.Increment(ref _seekGeneration);
+        }
+
+        private static long UnixUtcNowMs()
+        {
+            return DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        }
+
+        /// <summary>
+        /// Phase F1: pin the shared host timeline. Clients compute
+        /// desiredMs = positionAtAnchorMs + (nowUnixMs - anchorUnixMs) while playing.
+        /// Late joiners catch up alone — joining an output does not reset this for others.
+        /// </summary>
+        private void SetTimelineAnchor(long positionMs)
+        {
+            if (positionMs < 0)
+            {
+                positionMs = 0;
+            }
+            _positionAtAnchorMs = positionMs;
+            _anchorUnixMs = UnixUtcNowMs();
+        }
+
+        /// <summary>Current session playhead in ms (host irrKlang or remote session clock).</summary>
+        private long GetSessionPositionMs()
+        {
+            if (IsHostInOutputSet)
+            {
+                long position = Player.GetCurrentSongPlayTime();
+                return position < 0 ? 0 : position;
+            }
+
+            long remote = _remotePositionMs;
+            if (_remoteSessionPlaying && _remotePositionWatch.IsRunning)
+            {
+                remote += _remotePositionWatch.ElapsedMilliseconds;
+            }
+            return remote < 0 ? 0 : remote;
         }
 
         /// <summary>Never allow an empty output set (defaults to host).</summary>
@@ -1549,6 +1594,9 @@ namespace FlacPlayer.ViewModel
                 _remoteSessionPlaying = false;
                 _remotePositionWatch.Reset();
             }
+
+            // New track / (re)start: timeline at position 0 for all outputs (F1).
+            SetTimelineAnchor(0);
         }
 
         private void SilenceHostPlayer()
@@ -1997,7 +2045,9 @@ namespace FlacPlayer.ViewModel
                 OutputDeviceName = legacyName,
                 StreamUrl = streamUrl,
                 TransportSeq = _transportSeq,
-                SeekGeneration = _seekGeneration
+                SeekGeneration = _seekGeneration,
+                AnchorUnixMs = _anchorUnixMs,
+                PositionAtAnchorMs = _positionAtAnchorMs
             };
         }
 
@@ -2122,9 +2172,13 @@ namespace FlacPlayer.ViewModel
             }
             if (bumpTransport)
             {
+                // Host/UI seek: re-anchor timeline so remotes converge to the same playhead.
+                SetTimelineAnchor(positionMs);
                 BumpTransportSeq();
                 BumpSeekGeneration();
             }
+            // Heartbeat position reports (bumpTransport=false) do not move the shared anchor —
+            // late joiners / other rooms keep the host timeline (Phase F locked: catch up alone).
         }
 
         public void RemoteSetVolume(double level)
