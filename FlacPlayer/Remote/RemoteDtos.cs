@@ -105,6 +105,13 @@ namespace FlacPlayer.Remote
 
         /// <summary>Phase F1: song playhead (ms) at <see cref="AnchorUnixMs"/>.</summary>
         public long PositionAtAnchorMs { get; set; }
+
+        /// <summary>
+        /// Host UTC Unix ms at response build time (not sticky). Clients estimate clock offset:
+        /// offsetMs ≈ ServerUnixMs − clientLocalUnixMsAtReceive (plus half RTT).
+        /// Use offset-corrected now for desiredMs = PositionAtAnchorMs + (correctedNow − AnchorUnixMs).
+        /// </summary>
+        public long ServerUnixMs { get; set; }
     }
 
     public sealed class OutputDeviceDto

@@ -2093,7 +2093,9 @@ namespace FlacPlayer.ViewModel
                 TransportSeq = _transportSeq,
                 SeekGeneration = _seekGeneration,
                 AnchorUnixMs = _anchorUnixMs,
-                PositionAtAnchorMs = _positionAtAnchorMs
+                PositionAtAnchorMs = _positionAtAnchorMs,
+                // Fresh host UTC each response — sticky anchors stay in _anchorUnixMs / _positionAtAnchorMs.
+                ServerUnixMs = UnixUtcNowMs()
             };
         }
 
