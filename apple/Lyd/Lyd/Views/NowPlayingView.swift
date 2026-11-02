@@ -416,7 +416,9 @@ struct NowPlayingView: View {
                 Text("Playing on")
                     .font(.title3)
                     .foregroundStyle(Color.secondary)
-                Text("Select every device that should play audio. Uncheck This device for remote-only control.")
+                Text(session.allowMultiOutput
+                     ? "Select every device that should play audio. Uncheck This device for remote-only control."
+                     : "Choose one device for audio. Turn on Allow multi-room output on the host to sync rooms.")
                     .font(.body)
                     .foregroundStyle(Color.secondary)
                 TVNowPlayingButton(
@@ -630,14 +632,17 @@ struct NowPlayingView: View {
             Text("Playing on")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            Text("Choose where audio plays. Uncheck This device to control without streaming here.")
+            Text(session.allowMultiOutput
+                 ? "Choose where audio plays. Uncheck This device to control without streaming here."
+                 : "Choose one device for audio. Enable Allow multi-room output on the host to select several.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
             outputToggleRow(
                 title: session.selectedDisplayName.isEmpty ? "Host" : session.selectedDisplayName,
                 systemImage: "desktopcomputer",
-                selected: session.isHostAudioOutput
+                selected: session.isHostAudioOutput,
+                singleSelect: !session.allowMultiOutput
             ) {
                 Task {
                     await session.setOutputTarget(
@@ -650,7 +655,8 @@ struct NowPlayingView: View {
             outputToggleRow(
                 title: "This device",
                 systemImage: "iphone",
-                selected: session.isLocalAudioOutput
+                selected: session.isLocalAudioOutput,
+                singleSelect: !session.allowMultiOutput
             ) {
                 Task {
                     await session.setOutputTarget(
@@ -664,7 +670,8 @@ struct NowPlayingView: View {
                 outputToggleRow(
                     title: player.displayName,
                     systemImage: "hifispeaker",
-                    selected: session.outputTargetIds.contains(player.deviceId)
+                    selected: session.outputTargetIds.contains(player.deviceId),
+                    singleSelect: !session.allowMultiOutput
                 ) {
                     Task {
                         await session.setOutputTarget(
@@ -682,11 +689,15 @@ struct NowPlayingView: View {
         title: String,
         systemImage: String,
         selected: Bool,
+        singleSelect: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                // Multi: checkbox. Single: radio (one Playing on device).
+                Image(systemName: selected
+                      ? (singleSelect ? "circle.inset.filled" : "checkmark.circle.fill")
+                      : "circle")
                     .foregroundStyle(selected ? LydTheme.primary : Color.secondary)
                 Label(title, systemImage: systemImage)
                     .foregroundStyle(Color.primary)
@@ -695,6 +706,7 @@ struct NowPlayingView: View {
             .padding(.vertical, 6)
         }
         .buttonStyle(.plain)
+        .accessibilityHint(singleSelect ? "Selects this device only" : "Toggles this device in Playing on")
     }
     #endif
 

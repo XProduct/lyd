@@ -147,25 +147,33 @@ final class LydAPIClient: @unchecked Sendable {
         try await post("api/v1/playback/volume", body: VolumeRequest(level: clamped))
     }
 
-    /// Phase E: multi-select Playing on (host and/or registered players).
-    func setPlaybackOutputs(_ targets: [PlaybackOutputTargetDto]) async throws {
+    /// Phase E: Playing on targets. Returns authoritative host state (may collapse when multi off).
+    @discardableResult
+    func setPlaybackOutputs(_ targets: [PlaybackOutputTargetDto]) async throws -> PlaybackStateDto {
         try await post(
             "api/v1/playback/output",
-            body: PlaybackOutputRequest(target: nil, deviceId: nil, deviceName: nil, targets: targets)
+            body: PlaybackOutputRequest(target: nil, deviceId: nil, deviceName: nil, targets: targets),
+            as: PlaybackStateDto.self
         )
     }
 
     /// Legacy single-target output (older hosts without Targets).
-    func setPlaybackOutput(target: String, deviceId: String?, deviceName: String?) async throws {
+    @discardableResult
+    func setPlaybackOutput(target: String, deviceId: String?, deviceName: String?) async throws -> PlaybackStateDto {
         try await post(
             "api/v1/playback/output",
-            body: PlaybackOutputRequest(target: target, deviceId: deviceId, deviceName: deviceName, targets: nil)
+            body: PlaybackOutputRequest(target: target, deviceId: deviceId, deviceName: deviceName, targets: nil),
+            as: PlaybackStateDto.self
         )
     }
 
     func listPlayers() async throws -> [PlayerDto] {
-        let response: PlayersResponse = try await get("api/v1/players")
+        let response = try await getPlayers()
         return response.players ?? []
+    }
+
+    func getPlayers() async throws -> PlayersResponse {
+        try await get("api/v1/players")
     }
 
     /// Phase E: report playhead while this device is the audio renderer.
@@ -262,6 +270,19 @@ final class LydAPIClient: @unchecked Sendable {
         request.httpBody = try LydJSON.encoder.encode(body)
         let (data, response) = try await perform(request)
         try validate(response, data: data)
+    }
+
+    private func post<Body: Encodable, T: Decodable>(_ path: String, body: Body, as: T.Type) async throws -> T {
+        var request = try makeRequest(path: path, method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try LydJSON.encoder.encode(body)
+        let (data, response) = try await perform(request)
+        try validate(response, data: data)
+        do {
+            return try LydJSON.decoder.decode(T.self, from: data)
+        } catch {
+            throw LydAPIError.decoding(error)
+        }
     }
 
     private func postEmpty(_ path: String) async throws {

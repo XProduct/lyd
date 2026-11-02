@@ -104,6 +104,8 @@ struct PlaybackStateDto: Codable, Hashable {
     /// Host UTC unix ms at serialize time (Windows #27). Not sticky — refresh every response.
     /// `offsetMs ≈ serverUnixMs − clientLocalUnixMsAtReceive`; do not substitute for `anchorUnixMs`.
     var serverUnixMs: Int64?
+    /// When false (desktop default), Playing on is single-select. Optional until Windows ships the field.
+    var allowMultiOutput: Bool?
 
     /// Live host playhead for clock-safe fallback (not the sticky anchor position).
     var liveHostPositionMs: Int64 {
@@ -167,6 +169,8 @@ struct PlayerDto: Codable, Hashable, Identifiable {
 
 struct PlayersResponse: Codable {
     var players: [PlayerDto]?
+    /// Mirrored from playback state (Windows #32).
+    var allowMultiOutput: Bool?
 }
 
 enum LydOutputIds {

@@ -51,6 +51,8 @@ final class LydSession: ObservableObject {
     @Published private(set) var hasLoadedSongCatalog = false
     /// Phase E: multi-select Playing on device ids (`LydOutputIds.host` and/or player ids).
     @Published private(set) var outputTargetIds: Set<String> = [LydOutputIds.host]
+    /// Host `allowMultiOutput` (Windows #32). Default false = single Playing on (desktop default).
+    @Published private(set) var allowMultiOutput = false
     /// Other registered Apple players on this host (excludes this device in the UI list).
     @Published private(set) var registeredPlayers: [PlayerDto] = []
 
@@ -232,6 +234,7 @@ final class LydSession: ObservableObject {
         }
         localPlayer.stop()
         outputTargetIds = [LydOutputIds.host]
+        allowMultiOutput = false
         pendingOutputTargetIds = nil
         pendingOutputUntil = nil
         didCorrectiveTimelineSeekThisItem = false
@@ -404,8 +407,13 @@ final class LydSession: ObservableObject {
     }
 
     /// Phase E: toggle one Playing on target (host / this device / other registered player).
+    /// When `allowMultiOutput` is false, tapping a row **replaces** the selection (single-select).
     func setOutputTarget(deviceId: String, enabled: Bool) async {
         guard client != nil else { return }
+        if !allowMultiOutput {
+            await applyOutputTargets([deviceId])
+            return
+        }
         var next = outputTargetIds
         if enabled {
             next.insert(deviceId)
@@ -421,39 +429,51 @@ final class LydSession: ObservableObject {
 
     func applyOutputTargets(_ ids: Set<String>) async {
         guard client != nil else { return }
-        let normalized = Self.nonEmptyOutputTargets(ids)
+        var normalized = Self.nonEmptyOutputTargets(ids)
+        if !allowMultiOutput, normalized.count > 1 {
+            normalized = Self.collapseToSingleOutput(normalized)
+        }
         let previousLocal = isLocalAudioOutput
         let wasPlaying = effectiveIsPlaying
         let position = effectivePositionMs
         let songId = playback.currentSongId
 
-        // Optimistic UI first — hold off host poll overwrites until confirmed.
+        // Optimistic UI; host response is authoritative (may collapse when multi is off).
         outputTargetIds = normalized
         pendingOutputTargetIds = normalized
         pendingOutputUntil = Date().addingTimeInterval(3.0)
-        let nowLocal = isLocalAudioOutput
+
+        // Stop immediately when leaving the output set — don't wait for the next poll.
+        if previousLocal, !normalized.contains(DeviceIdentity.deviceId) {
+            localPlayer.stop()
+        }
 
         configureLocalPlayerIfNeeded()
-        async let registered: Void = registerThisPlayer()
-        async let pushed: Void = pushOutputTargetsToHost()
+        await registerThisPlayer()
+        let hostState = await pushOutputTargetsToHost()
+        if let hostState {
+            // Clear pending so sync trusts the POST response (contract: host is source of truth).
+            pendingOutputTargetIds = nil
+            pendingOutputUntil = nil
+            await applyHostPlaybackState(hostState)
+        } else {
+            await refreshPlayback()
+        }
 
+        let nowLocal = isLocalAudioOutput
         if nowLocal, !previousLocal {
             lastAppliedSeekGeneration = playback.seekGeneration ?? lastAppliedSeekGeneration
             if let songId {
                 await startLocalStream(songId: songId, atMs: position, autoplay: wasPlaying)
             }
-        } else if !nowLocal, previousLocal {
+        } else if !nowLocal, previousLocal, localPlayer.currentSongId != nil {
             localPlayer.stop()
         }
 
-        await registered
-        await pushed
         if nowLocal {
             await reportPlaybackHeartbeat()
         }
         await refreshPlayers()
-        // Refresh song/transport only; syncOutputTargets respects pending until host matches.
-        await refreshPlayback()
     }
 
     /// Foreground / Retry: ping health then resume polls if the host is back.
@@ -741,8 +761,9 @@ final class LydSession: ObservableObject {
         ids.isEmpty ? [LydOutputIds.host] : ids
     }
 
-    private func pushOutputTargetsToHost() async {
-        guard let client else { return }
+    @discardableResult
+    private func pushOutputTargetsToHost() async -> PlaybackStateDto? {
+        guard let client else { return nil }
         let ids = Self.nonEmptyOutputTargets(outputTargetIds)
         if ids != outputTargetIds {
             outputTargetIds = ids
@@ -758,29 +779,33 @@ final class LydSession: ObservableObject {
             return PlaybackOutputTargetDto(deviceId: id, deviceName: name ?? id)
         }
         do {
-            try await client.setPlaybackOutputs(targets)
+            return try await client.setPlaybackOutputs(targets)
         } catch {
             // Legacy single-target recovery must match the user's selection.
             // Never POST host-only when This device (or any non-host target) is selected —
             // that was wiping multi / This-device picks and stopping AVPlayer.
             if ids == [LydOutputIds.host] {
-                try? await client.setPlaybackOutput(target: "host", deviceId: nil, deviceName: nil)
+                return try? await client.setPlaybackOutput(target: "host", deviceId: nil, deviceName: nil)
             } else if ids.contains(DeviceIdentity.deviceId) {
-                try? await client.setPlaybackOutput(
+                return try? await client.setPlaybackOutput(
                     target: "remote",
                     deviceId: DeviceIdentity.deviceId,
                     deviceName: DeviceIdentity.displayName
                 )
             }
             // Other remotes-only / unknown: leave host state alone rather than force host.
+            return nil
         }
     }
 
     private func refreshPlayers() async {
         guard let client else { return }
         do {
-            let players = try await client.listPlayers()
-            registeredPlayers = players
+            let response: PlayersResponse = try await client.getPlayers()
+            if let flag = response.allowMultiOutput {
+                allowMultiOutput = flag
+            }
+            registeredPlayers = (response.players ?? [])
                 .filter { $0.deviceId != DeviceIdentity.deviceId }
                 .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         } catch {
@@ -789,7 +814,41 @@ final class LydSession: ObservableObject {
     }
 
     private func syncOutputTargets(from remote: PlaybackStateDto) {
+        // Missing field → false (matches desktop default off / f1-allow-multi-output-contract).
+        allowMultiOutput = remote.allowMultiOutput ?? false
         let remoteIds = resolvedOutputTargetIds(from: remote)
+
+        // Single-output mode: host collapse is authoritative — never sticky-repush This device.
+        if !allowMultiOutput {
+            if let remoteIds {
+                var next = Self.nonEmptyOutputTargets(remoteIds)
+                if next.count > 1 {
+                    next = Self.collapseToSingleOutput(next)
+                }
+                if let pending = pendingOutputTargetIds {
+                    let pendingSingle = {
+                        let p = Self.nonEmptyOutputTargets(pending)
+                        return p.count > 1 ? Self.collapseToSingleOutput(p) : p
+                    }()
+                    if next == pendingSingle {
+                        pendingOutputTargetIds = nil
+                        pendingOutputUntil = nil
+                        outputTargetIds = next
+                        return
+                    }
+                    if let until = pendingOutputUntil, Date() < until {
+                        outputTargetIds = pendingSingle
+                        return
+                    }
+                    pendingOutputTargetIds = nil
+                    pendingOutputUntil = nil
+                }
+                outputTargetIds = next
+            } else if outputTargetIds.isEmpty {
+                outputTargetIds = [LydOutputIds.host]
+            }
+            return
+        }
 
         if let pending = pendingOutputTargetIds {
             let pendingNormalized = Self.nonEmptyOutputTargets(pending)
@@ -845,6 +904,20 @@ final class LydSession: ObservableObject {
             return
         }
         outputTargetIds = Self.nonEmptyOutputTargets(remoteIds)
+    }
+
+    /// Single-output mode: prefer host if selected, else keep one stable id.
+    private static func collapseToSingleOutput(_ ids: Set<String>) -> Set<String> {
+        if ids.contains(LydOutputIds.host) {
+            return [LydOutputIds.host]
+        }
+        if ids.contains(DeviceIdentity.deviceId) {
+            return [DeviceIdentity.deviceId]
+        }
+        if let first = ids.sorted().first {
+            return [first]
+        }
+        return [LydOutputIds.host]
     }
 
     /// `nil` = host omitted output info (don't clobber). Empty list is treated as host.
