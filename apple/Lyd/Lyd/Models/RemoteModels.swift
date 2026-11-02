@@ -142,6 +142,8 @@ struct PlaybackHeartbeatRequest: Encodable {
     var positionMs: Int64
     var durationMs: Int64?
     var songId: String?
+    /// When true/false, host remote session clock follows; omit while still buffering.
+    var isPlaying: Bool?
 }
 
 struct PlayerRegisterRequest: Encodable {

@@ -2252,7 +2252,7 @@ namespace FlacPlayer.ViewModel
             if (positionMs < 0) positionMs = 0;
             if (IsHostInOutputSet)
             {
-                Player.SetPlayPosition((int)(positionMs / 1000));
+                Player.SetPlayPositionMs(positionMs);
             }
             if (HasRemoteOutput)
             {
@@ -2276,6 +2276,42 @@ namespace FlacPlayer.ViewModel
             }
             // Heartbeat position reports (bumpTransport=false) do not move the shared anchor —
             // late joiners / other rooms keep the host timeline (Phase F locked: catch up alone).
+        }
+
+        /// <summary>
+        /// Soft-follow an Apple renderer's heartbeat. Position must advance monotonically:
+        /// pre-seek ~0 samples and lagging heartbeats must not rewind or sawtooth the
+        /// desktop progress bar (classic symptom: toggling between two seconds).
+        /// </summary>
+        private void ApplyRemoteHeartbeatPosition(long positionMs)
+        {
+            if (positionMs < 0) positionMs = 0;
+
+            long current = GetSessionPositionMs();
+            // Behind the live session clock — ignore (join ~0, stalled reporter, RTT lag).
+            if (positionMs + 250 < current)
+            {
+                return;
+            }
+
+            // Roughly in sync: leave the running Stopwatch alone so the UI does not
+            // reset every heartbeat and flicker between adjacent seconds.
+            if (positionMs <= current + 250
+                && _remoteSessionPlaying
+                && _remotePositionWatch.IsRunning)
+            {
+                return;
+            }
+
+            _remotePositionMs = positionMs;
+            if (_remoteSessionPlaying)
+            {
+                _remotePositionWatch.Restart();
+            }
+            else
+            {
+                _remotePositionWatch.Reset();
+            }
         }
 
         public void RemoteSetVolume(double level)
@@ -2460,6 +2496,10 @@ namespace FlacPlayer.ViewModel
                 SilenceHostPlayer();
                 _remotePositionMs = pos;
                 _remoteDurationMs = dur > 0 ? dur : _remoteDurationMs;
+                if (CurrentPlayingSong != null && _remoteDurationMs <= 0)
+                {
+                    SetRemoteDurationFromSong(CurrentPlayingSong);
+                }
             }
             else if (!wasHost && nowHost
                 && wasPlaying
@@ -2467,10 +2507,11 @@ namespace FlacPlayer.ViewModel
                 && !string.IsNullOrEmpty(CurrentPlayingSong.Path))
             {
                 CaptureRemotePosition();
+                pos = _remotePositionMs;
                 Player.Play(CurrentPlayingSong.Path);
                 if (pos > 0)
                 {
-                    Player.SetPlayPosition((int)(pos / 1000));
+                    Player.SetPlayPositionMs(pos);
                 }
                 GetSongDuration();
             }
@@ -2503,11 +2544,15 @@ namespace FlacPlayer.ViewModel
                 Player.Play(CurrentPlayingSong.Path);
                 if (pos > 0)
                 {
-                    Player.SetPlayPosition((int)(pos / 1000));
+                    Player.SetPlayPositionMs(pos);
                 }
                 GetSongDuration();
             }
 
+            // Keep sticky timeline continuous across renderer handoffs so remotes (and the
+            // desktop UI remote clock) do not jump, and switch-back stays seamless.
+            _pendingTimelineGlue = nowHost && wasPlaying;
+            SetTimelineAnchor(pos);
             BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
             RaisePropertyChanged(nameof(PlayingOnLabel));
@@ -2670,16 +2715,15 @@ namespace FlacPlayer.ViewModel
             // Only selected output remotes may contribute position; others must not render.
             if (IsOutputDevice(deviceId) && !IsHostInOutputSet)
             {
-                if (positionMs.HasValue)
-                {
-                    ApplySessionPosition(positionMs.Value, bumpTransport: false);
-                }
                 if (isPlaying.HasValue)
                 {
                     if (isPlaying.Value && !_remoteSessionPlaying)
                     {
                         _remoteSessionPlaying = true;
-                        _remotePositionWatch.Start();
+                        if (!_remotePositionWatch.IsRunning)
+                        {
+                            _remotePositionWatch.Start();
+                        }
                     }
                     else if (!isPlaying.Value && _remoteSessionPlaying)
                     {
@@ -2688,6 +2732,10 @@ namespace FlacPlayer.ViewModel
                         _remotePositionWatch.Stop();
                     }
                     RaisePropertyChanged(nameof(IsPlaying));
+                }
+                if (positionMs.HasValue)
+                {
+                    ApplyRemoteHeartbeatPosition(positionMs.Value);
                 }
             }
             else if (IsOutputDevice(deviceId) && IsHostInOutputSet && positionMs.HasValue)

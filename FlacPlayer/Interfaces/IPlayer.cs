@@ -11,6 +11,8 @@ namespace FlacPlayer.Model
         bool IsPlaying();
         bool IsFinished();
         void SetPlayPosition(int seconds);
+        /// <summary>Seek to an absolute playhead in milliseconds (seamless output handoff).</summary>
+        void SetPlayPositionMs(long positionMs);
         double GetVolume();
         void SetVolume(double level);
     }

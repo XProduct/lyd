@@ -71,10 +71,20 @@ namespace FlacPlayer.Model
 
         public void SetPlayPosition(int seconds)
         {
-            if (currentSound != null)
+            SetPlayPositionMs(seconds * 1000L);
+        }
+
+        public void SetPlayPositionMs(long positionMs)
+        {
+            if (currentSound == null)
             {
-                currentSound.PlayPosition = (uint)(seconds * 1000);
+                return;
             }
+            if (positionMs < 0)
+            {
+                positionMs = 0;
+            }
+            currentSound.PlayPosition = (uint)positionMs;
         }
 
         public double GetVolume()
