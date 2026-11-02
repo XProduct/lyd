@@ -7,16 +7,22 @@ namespace FlacPlayer.Remote
 {
     public static class FirewallHelper
     {
-        public static bool EnsureAccess(int port, ref bool alreadyConfigured)
+        /// <summary>
+        /// Shows the one-time elevation prompt and, if accepted, adds URL ACL + inbound
+        /// firewall rules for the API TCP port and mDNS UDP 5353.
+        /// </summary>
+        /// <param name="port">HTTP API listen port.</param>
+        /// <param name="userAccepted">True when the user clicked Yes (UAC may still be cancelled).</param>
+        /// <returns>True when the elevated script completed successfully.</returns>
+        public static bool EnsureAccess(int port, out bool userAccepted)
         {
-            if (alreadyConfigured)
-            {
-                return true;
-            }
+            userAccepted = false;
 
             MessageBoxResult answer = MessageBox.Show(
-                "Lyd needs a one-time Windows permission to accept remote connections on TCP port " + port +
-                " (and HTTP URL reservation). Allow now? An elevation prompt may appear.",
+                "Lyd needs a one-time Windows permission so phones on your LAN can connect:" + Environment.NewLine + Environment.NewLine +
+                "• Inbound TCP " + port + " — HTTP remote API (IPv4 + IPv6 URL reservation)" + Environment.NewLine +
+                "• Inbound UDP 5353 — mDNS / Bonjour discovery (_lyd._tcp)" + Environment.NewLine + Environment.NewLine +
+                "Allow now? A Windows elevation (UAC) prompt may appear. You will not be asked again for this port.",
                 "Lyd Remote",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Information);
@@ -26,13 +32,23 @@ namespace FlacPlayer.Remote
                 return false;
             }
 
+            userAccepted = true;
+
             string user = WindowsIdentity.GetCurrent().Name;
+            // Delete-then-add so re-runs succeed when the ACL/rule already exists (exit code 0).
             string script =
-                "netsh http add urlacl url=http://+:" + port + "/ user=\"" + user + "\"\r\n" +
-                "netsh advfirewall firewall delete rule name=\"Lyd Remote API\"\r\n" +
-                "netsh advfirewall firewall add rule name=\"Lyd Remote API\" dir=in action=allow protocol=TCP localport=" + port + " profile=private,domain\r\n" +
-                "netsh advfirewall firewall delete rule name=\"Lyd Remote mDNS\"\r\n" +
-                "netsh advfirewall firewall add rule name=\"Lyd Remote mDNS\" dir=in action=allow protocol=UDP localport=5353 profile=private,domain\r\n";
+                "@echo off" + Environment.NewLine +
+                "netsh http delete urlacl url=http://+:" + port + "/ >nul 2>&1" + Environment.NewLine +
+                "netsh http delete urlacl url=http://[::]:" + port + "/ >nul 2>&1" + Environment.NewLine +
+                "netsh http add urlacl url=http://+:" + port + "/ user=\"" + user + "\"" + Environment.NewLine +
+                "netsh http add urlacl url=http://[::]:" + port + "/ user=\"" + user + "\"" + Environment.NewLine +
+                "netsh advfirewall firewall delete rule name=\"Lyd Remote API\" >nul 2>&1" + Environment.NewLine +
+                "netsh advfirewall firewall delete rule name=\"Lyd Remote API IPv6\" >nul 2>&1" + Environment.NewLine +
+                "netsh advfirewall firewall add rule name=\"Lyd Remote API\" dir=in action=allow protocol=TCP localport=" + port + " profile=private,domain" + Environment.NewLine +
+                "netsh advfirewall firewall add rule name=\"Lyd Remote API IPv6\" dir=in action=allow protocol=TCP localport=" + port + " profile=private,domain interfacetype=any" + Environment.NewLine +
+                "netsh advfirewall firewall delete rule name=\"Lyd Remote mDNS\" >nul 2>&1" + Environment.NewLine +
+                "netsh advfirewall firewall add rule name=\"Lyd Remote mDNS\" dir=in action=allow protocol=UDP localport=5353 profile=private,domain" + Environment.NewLine +
+                "exit /b 0" + Environment.NewLine;
 
             string temp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "lyd-remote-firewall.cmd");
             System.IO.File.WriteAllText(temp, script);
@@ -52,11 +68,11 @@ namespace FlacPlayer.Remote
                     return false;
                 }
                 p.WaitForExit(60000);
-                alreadyConfigured = p.ExitCode == 0;
-                return alreadyConfigured;
+                return p.ExitCode == 0;
             }
             catch (Exception)
             {
+                // UAC cancelled or elevation unavailable.
                 return false;
             }
         }
