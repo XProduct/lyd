@@ -78,8 +78,9 @@ final class LydSession: ObservableObject {
     private var timelineSamplePositionMs: Int64 = 0
     private var timelineSampleAt: Date?
     private var timelineSamplePlaying = false
-    /// clientUnix − hostUnix (positive ⇒ this device’s wall clock is ahead of the host).
-    private var hostClockOffsetMs: Int64 = 0
+    /// Host−client wall offset: `serverUnixMs − clientReceiveUnixMs` (positive ⇒ client clock behind).
+    /// Matches Windows #27 / f1-clock-skew-contract: correctedNow = clientNow + offsetMs.
+    private var serverMinusClientMs: Int64 = 0
     private var hasHostClockOffset = false
     /// Last sticky pin from the host (transport / one-shot glue — not rewritten every poll).
     private var stickyAnchorUnixMs: Int64?
@@ -245,7 +246,7 @@ final class LydSession: ObservableObject {
         timelineSampleAt = nil
         timelineSamplePositionMs = 0
         timelineSamplePlaying = false
-        hostClockOffsetMs = 0
+        serverMinusClientMs = 0
         hasHostClockOffset = false
         stickyAnchorUnixMs = nil
         stickyPositionAtAnchorMs = nil
@@ -1016,15 +1017,16 @@ final class LydSession: ObservableObject {
         let receiveMs = Int64(Date().timeIntervalSince1970 * 1000)
 
         if let server = remote.serverUnixMs, server > 0 {
-            // Preferred: host-provided serialize time (F1 clock-skew contract).
-            hostClockOffsetMs = receiveMs - server
+            // Windows #27: offsetMs ≈ serverUnixMs − clientLocalUnixMsAtReceive
+            serverMinusClientMs = server - receiveMs
             hasHostClockOffset = true
         } else if let anchor = remote.anchorUnixMs,
                   let atAnchor = remote.positionAtAnchorMs,
                   remote.isPlaying {
-            // Infer client−host until serverUnixMs ships: sticky derive on client clock vs live pos.
+            // Pre-#27 hosts: infer host−client from sticky derive vs live playhead.
             let derivedOnClientClock = atAnchor + (receiveMs - anchor)
-            hostClockOffsetMs = derivedOnClientClock - remote.positionMs
+            // serverMinusClient ≈ livePos − derivedOnClientClock
+            serverMinusClientMs = remote.positionMs - derivedOnClientClock
             hasHostClockOffset = true
         }
 
@@ -1046,9 +1048,10 @@ final class LydSession: ObservableObject {
                 return max(0, atAnchor)
             }
             if hasHostClockOffset {
-                // sticky: positionAtAnchor + (correctedNow − anchorUnix)
+                // Contract: correctedNow = clientNow + (serverUnixMs − clientReceive)
+                // desired = positionAtAnchorMs + (correctedNow − anchorUnixMs)
                 let nowMs = Int64(date.timeIntervalSince1970 * 1000)
-                let correctedNowMs = nowMs - hostClockOffsetMs
+                let correctedNowMs = nowMs + serverMinusClientMs
                 return max(0, atAnchor + (correctedNowMs - anchor))
             }
             // Sticky without an offset estimate: never raw client wall vs AnchorUnixMs
