@@ -53,6 +53,18 @@ namespace FlacPlayer.Remote
         public string CurrentSongId { get; set; }
         public SongDto CurrentSong { get; set; }
         public double Volume { get; set; }
+
+        /// <summary>Stable session id for this host process (one session per host in v1).</summary>
+        public string SessionId { get; set; }
+
+        /// <summary>"host" or a remote player device id.</summary>
+        public string OutputDeviceId { get; set; }
+
+        /// <summary>Display name for the current output target.</summary>
+        public string OutputDeviceName { get; set; }
+
+        /// <summary>Relative stream URL for the current song, when available.</summary>
+        public string StreamUrl { get; set; }
     }
 
     public sealed class PlayRequest
@@ -78,5 +90,13 @@ namespace FlacPlayer.Remote
     public sealed class ShuffleRequest
     {
         public bool? Enabled { get; set; }
+    }
+
+    /// <summary>POST /api/v1/playback/output — where audio should render.</summary>
+    public sealed class OutputRequest
+    {
+        /// <summary>"host" for Windows irrKlang, or a client device id for Apple AVPlayer.</summary>
+        public string DeviceId { get; set; }
+        public string DeviceName { get; set; }
     }
 }

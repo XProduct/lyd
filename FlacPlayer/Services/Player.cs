@@ -45,6 +45,14 @@ namespace FlacPlayer.Model
             IsPlaying = false;
         }
 
+        public void Stop()
+        {
+            playerStopWatch.Reset();
+            engine.StopAllSounds();
+            currentSound = null;
+            IsPlaying = false;
+        }
+
         public long GetCurrentSongDuration()
         {
             return currentSound != null ? currentSound.PlayLength : 0;

@@ -4,6 +4,8 @@ namespace FlacPlayer.Model
     {
         void Play(string filepath = null);
         void Pause();
+        /// <summary>Stop all sounds and clear the current stream (used when output leaves the host).</summary>
+        void Stop();
         long GetCurrentSongDuration();
         long GetCurrentSongPlayTime();
         bool IsPlaying();

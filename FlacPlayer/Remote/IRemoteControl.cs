@@ -16,6 +16,10 @@ namespace FlacPlayer.Remote
         void SetShuffle(bool? enabled);
         void Seek(long positionMs);
         void SetVolume(double level);
+        /// <summary>Set where audio renders: "host" or a remote device id (E1).</summary>
+        void SetOutput(string deviceId, string deviceName);
         bool TryGetAlbumCover(string albumId, out byte[] bytes, out string contentType);
+        /// <summary>Resolve a song id to its on-disk path for streaming.</summary>
+        bool TryGetSongPath(string songId, out string path);
     }
 }
