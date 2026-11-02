@@ -6,13 +6,39 @@ struct AlbumDetailView: View {
 
     private var tracks: [SongDto] { session.songs(for: album) }
 
+    private var artworkMaxSide: CGFloat {
+        #if os(tvOS)
+        420
+        #else
+        320
+        #endif
+    }
+
     var body: some View {
         List {
             Section {
-                HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 16) {
                     CoverImage(url: session.coverURL(for: album))
-                        .frame(width: 120, height: 120)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: artworkMaxSide)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    Button {
+                        Task { await session.playAlbum(albumId: album.id) }
+                    } label: {
+                        Label("Play Album", systemImage: "play.fill")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            #if os(tvOS)
+                            .padding(.vertical, 8)
+                            #endif
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(LydTheme.primary)
+                    .disabled(tracks.isEmpty)
+                    .frame(maxWidth: .infinity)
+
                     VStack(alignment: .leading, spacing: 6) {
                         Text(album.displayTitle)
                             .font(.title2.bold())
@@ -22,20 +48,9 @@ struct AlbumDetailView: View {
                         Text("\(tracks.count) tracks")
                             .font(.footnote)
                             .foregroundStyle(Color.secondary)
-
-                        Button {
-                            Task { await session.playAlbum(albumId: album.id) }
-                        } label: {
-                            Label("Play Album", systemImage: "play.fill")
-                                .font(.body.weight(.semibold))
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(LydTheme.primary)
-                        .disabled(tracks.isEmpty)
-                        .padding(.top, 6)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
             }
 
