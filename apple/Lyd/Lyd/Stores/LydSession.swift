@@ -65,6 +65,9 @@ final class LydSession: ObservableObject {
     /// Suppress host→local play/pause echo for a moment after local transport.
     private var ignoreHostTransportUntil: Date?
     private var lastPlayerRegisterAt: Date?
+    /// Optimistic Playing on selection — polls must not clobber until host matches or grace ends.
+    private var pendingOutputTargetIds: Set<String>?
+    private var pendingOutputUntil: Date?
 
     /// This device is checked in Playing on → AVPlayer renders; unchecked = remote-only UI.
     var isLocalAudioOutput: Bool { outputTargetIds.contains(DeviceIdentity.deviceId) }
@@ -189,6 +192,8 @@ final class LydSession: ObservableObject {
         }
         localPlayer.stop()
         outputTargetIds = [LydOutputIds.host]
+        pendingOutputTargetIds = nil
+        pendingOutputUntil = nil
         registeredPlayers = []
         lastAppliedSeekGeneration = -1
         client = nil
@@ -271,10 +276,7 @@ final class LydSession: ObservableObject {
         } else {
             next.remove(deviceId)
         }
-        // Keep at least one output so the session always has a renderer.
-        if next.isEmpty {
-            next.insert(LydOutputIds.host)
-        }
+        // Empty is allowed (silence everywhere / remote-only with no local renderer).
         await applyOutputTargets(next)
     }
 
@@ -285,7 +287,10 @@ final class LydSession: ObservableObject {
         let position = effectivePositionMs
         let songId = playback.currentSongId
 
+        // Optimistic UI first — hold off host poll overwrites until confirmed.
         outputTargetIds = ids
+        pendingOutputTargetIds = ids
+        pendingOutputUntil = Date().addingTimeInterval(3.0)
         let nowLocal = isLocalAudioOutput
 
         configureLocalPlayerIfNeeded()
@@ -307,6 +312,7 @@ final class LydSession: ObservableObject {
             await reportPlaybackHeartbeat()
         }
         await refreshPlayers()
+        // Refresh song/transport only; syncOutputTargets respects pending until host matches.
         await refreshPlayback()
     }
 
@@ -597,20 +603,57 @@ final class LydSession: ObservableObject {
     }
 
     private func syncOutputTargets(from remote: PlaybackStateDto) {
-        if let targets = remote.outputTargets, !targets.isEmpty {
-            outputTargetIds = Set(targets.map(\.deviceId))
+        let remoteIds = resolvedOutputTargetIds(from: remote)
+
+        if let pending = pendingOutputTargetIds {
+            if let remoteIds, remoteIds == pending {
+                pendingOutputTargetIds = nil
+                pendingOutputUntil = nil
+                outputTargetIds = remoteIds
+                return
+            }
+            // Stale poll / in-flight POST — keep optimistic selection.
+            if let until = pendingOutputUntil, Date() < until {
+                return
+            }
+            // Grace expired: accept host if we can resolve it; otherwise keep local.
+            pendingOutputTargetIds = nil
+            pendingOutputUntil = nil
+            if let remoteIds {
+                outputTargetIds = remoteIds
+            }
             return
         }
-        // Legacy single-target fields.
-        if remote.outputTarget == "remote" || remote.outputTarget == "multi",
-           let id = remote.outputDeviceId, !id.isEmpty {
-            var ids: Set<String> = [id]
-            if remote.outputTarget == "multi" {
-                ids.insert(LydOutputIds.host)
+
+        guard let remoteIds else {
+            // Missing output fields — don't invent [host] and wipe a valid local selection.
+            return
+        }
+        outputTargetIds = remoteIds
+    }
+
+    /// `nil` = host omitted output info (don't clobber). Empty set = intentionally no outputs.
+    private func resolvedOutputTargetIds(from remote: PlaybackStateDto) -> Set<String>? {
+        if let targets = remote.outputTargets {
+            return Set(targets.map(\.deviceId))
+        }
+        // Legacy single-target fields only when OutputTargets is absent.
+        switch remote.outputTarget {
+        case "remote":
+            if let id = remote.outputDeviceId, !id.isEmpty {
+                return [id]
             }
-            outputTargetIds = ids
-        } else {
-            outputTargetIds = [LydOutputIds.host]
+            return nil
+        case "multi":
+            var ids: Set<String> = [LydOutputIds.host]
+            if let id = remote.outputDeviceId, !id.isEmpty {
+                ids.insert(id)
+            }
+            return ids
+        case "host":
+            return [LydOutputIds.host]
+        default:
+            return nil
         }
     }
 

@@ -1956,14 +1956,7 @@ namespace FlacPlayer.ViewModel
                     result.Add(new PlaybackOutputTargetDto { DeviceId = id, DeviceName = name });
                 }
             }
-            if (result.Count == 0)
-            {
-                result.Add(new PlaybackOutputTargetDto
-                {
-                    DeviceId = HostOutputDeviceId,
-                    DeviceName = RemoteDisplayName ?? "Host"
-                });
-            }
+            // Empty is allowed: no host audio and no remote renderers (session still controllable).
             return result;
         }
 
