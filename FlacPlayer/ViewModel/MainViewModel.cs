@@ -1979,6 +1979,11 @@ namespace FlacPlayer.ViewModel
                 DeviceName = o.Name
             }).ToArray();
 
+            // Phase F1: refresh host timeline anchor on each state build so Apple players
+            // extrapolate between polls (desired = positionAtAnchor + now − anchor).
+            long anchorUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long positionAtAnchorMs = position;
+
             return new PlaybackStateDto
             {
                 IsPlaying = playing,
@@ -1997,7 +2002,10 @@ namespace FlacPlayer.ViewModel
                 OutputDeviceName = legacyName,
                 StreamUrl = streamUrl,
                 TransportSeq = _transportSeq,
-                SeekGeneration = _seekGeneration
+                SeekGeneration = _seekGeneration,
+                AnchorUnixMs = anchorUnixMs,
+                PositionAtAnchorMs = positionAtAnchorMs,
+                TimelineMs = positionAtAnchorMs
             };
         }
 

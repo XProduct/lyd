@@ -96,6 +96,26 @@ struct PlaybackStateDto: Codable, Hashable {
     var outputTargets: [PlaybackOutputTargetDto]?
     /// Bumped on host seek / track start so the Apple renderer re-seeks.
     var seekGeneration: Int64?
+    /// Phase F1 host timeline (optional on older hosts).
+    var anchorUnixMs: Int64?
+    var positionAtAnchorMs: Int64?
+    /// Host’s timeline estimate at serialize time (optional).
+    var timelineMs: Int64?
+
+    /// Desired playhead from host timeline. Falls back to `positionMs` / `timelineMs`.
+    func desiredPositionMs(at date: Date = Date()) -> Int64 {
+        if let anchor = anchorUnixMs, let atAnchor = positionAtAnchorMs {
+            if !isPlaying {
+                return max(0, atAnchor)
+            }
+            let nowMs = Int64(date.timeIntervalSince1970 * 1000)
+            return max(0, atAnchor + (nowMs - anchor))
+        }
+        if let timelineMs {
+            return max(0, timelineMs)
+        }
+        return max(0, positionMs)
+    }
 }
 
 struct PlaybackOutputRequest: Encodable {

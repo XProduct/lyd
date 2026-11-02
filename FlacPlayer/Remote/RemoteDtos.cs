@@ -95,6 +95,21 @@ namespace FlacPlayer.Remote
 
         /// <summary>Bumped on seek / track start so Apple AVPlayer re-seeks (Phase E Apple field).</summary>
         public long SeekGeneration { get; set; }
+
+        /// <summary>
+        /// Phase F1 host timeline: UTC unix ms when <see cref="PositionAtAnchorMs"/> was sampled.
+        /// Clients derive desired position = PositionAtAnchorMs + (now − AnchorUnixMs) while playing.
+        /// </summary>
+        public long AnchorUnixMs { get; set; }
+
+        /// <summary>Song position (ms) at <see cref="AnchorUnixMs"/>.</summary>
+        public long PositionAtAnchorMs { get; set; }
+
+        /// <summary>
+        /// Host’s current timeline estimate at serialize time (same as PositionAtAnchorMs when
+        /// the anchor is refreshed on each state build).
+        /// </summary>
+        public long TimelineMs { get; set; }
     }
 
     public sealed class OutputDeviceDto

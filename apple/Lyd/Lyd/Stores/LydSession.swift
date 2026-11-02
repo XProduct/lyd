@@ -72,6 +72,20 @@ final class LydSession: ObservableObject {
     /// Optimistic Playing on selection — polls must not clobber until host matches or grace ends.
     private var pendingOutputTargetIds: Set<String>?
     private var pendingOutputUntil: Date?
+    /// Phase F: last time we hard-sought to the host timeline (avoid seek storms).
+    private var lastTimelineSeekAt: Date?
+
+    /// Phase F thresholds (plan: seek when far, rate-adjust to fine-tune; ~50–100 ms target).
+    private enum TimelineSync {
+        /// Hard seek when |skew| exceeds this (late join / big drift) — this device only.
+        static let seekSkewMs: Int64 = 500
+        /// Soft rate adjust when |skew| exceeds this.
+        static let rateSkewMs: Int64 = 80
+        static let rateFast: Float = 1.05
+        static let rateSlow: Float = 0.95
+        /// Minimum gap between corrective hard seeks.
+        static let seekCooldown: TimeInterval = 1.5
+    }
 
     /// This device is checked in Playing on → AVPlayer renders; unchecked = remote-only UI.
     var isLocalAudioOutput: Bool { outputTargetIds.contains(DeviceIdentity.deviceId) }
@@ -214,6 +228,7 @@ final class LydSession: ObservableObject {
         outputTargetIds = [LydOutputIds.host]
         pendingOutputTargetIds = nil
         pendingOutputUntil = nil
+        lastTimelineSeekAt = nil
         registeredPlayers = []
         lastAppliedSeekGeneration = -1
         client = nil
@@ -902,11 +917,14 @@ final class LydSession: ObservableObject {
             }
             playback = merged
 
+            // Late join / output enable: catch up alone to host timeline (don’t resync peers).
             if !previouslyLocal, let songId = remote.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? -1
+                let target = remote.desiredPositionMs()
+                lastTimelineSeekAt = Date()
                 await startLocalStream(
                     songId: songId,
-                    atMs: remote.positionMs,
+                    atMs: target,
                     autoplay: remote.isPlaying
                 )
                 return
@@ -915,9 +933,11 @@ final class LydSession: ObservableObject {
             let songId = remote.currentSongId
             if let songId, songId != localPlayer.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? lastAppliedSeekGeneration
+                let target = remote.desiredPositionMs()
+                lastTimelineSeekAt = Date()
                 await startLocalStream(
                     songId: songId,
-                    atMs: remote.positionMs,
+                    atMs: target,
                     autoplay: remote.isPlaying
                 )
                 return
@@ -931,8 +951,11 @@ final class LydSession: ObservableObject {
             let generation = remote.seekGeneration ?? 0
             if generation != lastAppliedSeekGeneration {
                 lastAppliedSeekGeneration = generation
-                if abs(remote.positionMs - localPlayer.positionMs) > 1500 {
-                    await localPlayer.seek(positionMs: remote.positionMs)
+                let target = remote.desiredPositionMs()
+                if abs(target - localPlayer.positionMs) > 150 {
+                    lastTimelineSeekAt = Date()
+                    await localPlayer.seek(positionMs: target, precise: true)
+                    localPlayer.setPlaybackRate(1.0)
                 }
             }
 
@@ -943,11 +966,43 @@ final class LydSession: ObservableObject {
                     localPlayer.pause()
                 }
             }
+
+            // Phase F1: follow host timeline — seek if far, rate-adjust to fine-tune.
+            if !suppressTransport, remote.isPlaying, localPlayer.currentSongId != nil {
+                await followHostTimeline(remote)
+            }
         } else {
             if previouslyLocal {
                 localPlayer.stop()
             }
             playback = remote
+        }
+    }
+
+    /// Align AVPlayer to host timeline. Corrections apply to **this device only**.
+    private func followHostTimeline(_ remote: PlaybackStateDto) async {
+        let desired = remote.desiredPositionMs()
+        let skew = desired - localPlayer.positionMs
+        let absSkew = abs(skew)
+
+        if absSkew >= TimelineSync.seekSkewMs {
+            let cooledDown = lastTimelineSeekAt.map { Date().timeIntervalSince($0) >= TimelineSync.seekCooldown } ?? true
+            if cooledDown {
+                lastTimelineSeekAt = Date()
+                await localPlayer.seek(positionMs: desired, precise: true)
+                localPlayer.setPlaybackRate(1.0)
+                if remote.isPlaying, !localPlayer.isPlaying {
+                    localPlayer.resume()
+                }
+            }
+            return
+        }
+
+        if absSkew >= TimelineSync.rateSkewMs {
+            // Behind host → speed up; ahead → slow down.
+            localPlayer.setPlaybackRate(skew > 0 ? TimelineSync.rateFast : TimelineSync.rateSlow)
+        } else if abs(localPlayer.playbackRate - 1.0) > 0.001 {
+            localPlayer.setPlaybackRate(1.0)
         }
     }
 

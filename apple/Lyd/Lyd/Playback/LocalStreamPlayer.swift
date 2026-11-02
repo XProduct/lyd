@@ -80,13 +80,38 @@ final class LocalStreamPlayer: ObservableObject {
         isPlaying = false
     }
 
-    func seek(positionMs: Int64) async {
+    func seek(positionMs: Int64, precise: Bool = false) async {
         guard let player else { return }
         let t = CMTime(value: max(0, positionMs), timescale: 1000)
-        // Generous tolerance = faster seeks on network streams.
-        await player.seek(to: t, toleranceBefore: .positiveInfinity, toleranceAfter: .positiveInfinity)
+        if precise {
+            // Phase F sync correction — tighter than transport scrub seeks.
+            let slack = CMTime(value: 40, timescale: 1000)
+            await player.seek(to: t, toleranceBefore: slack, toleranceAfter: slack)
+        } else {
+            // Generous tolerance = faster seeks on network streams.
+            await player.seek(to: t, toleranceBefore: .positiveInfinity, toleranceAfter: .positiveInfinity)
+        }
         self.positionMs = max(0, positionMs)
     }
+
+    /// Phase F soft drift correction (typically 0.95…1.05). 1.0 = normal.
+    /// No-ops while paused so a rate reset cannot accidentally resume.
+    func setPlaybackRate(_ rate: Float) {
+        guard let player else { return }
+        let clamped = min(max(rate, 0.5), 1.5)
+        if clamped <= 0.01 {
+            player.pause()
+            isPlaying = false
+            return
+        }
+        guard isPlaying || player.rate > 0.01 else { return }
+        if abs(player.rate - clamped) < 0.001 { return }
+        armAudioSession(active: true)
+        player.rate = clamped
+        isPlaying = true
+    }
+
+    var playbackRate: Float { player?.rate ?? 0 }
 
     func stop() {
         detachItemObservers()
