@@ -123,20 +123,26 @@ struct AlbumCell: View {
                 .shadow(color: .black.opacity(isFocused ? 0.35 : 0.12), radius: isFocused ? 14 : 4, y: isFocused ? 10 : 2)
                 #endif
 
-            // Fixed two-line title slot so shorter titles don't shift neighbors.
-            // Explicit primary/secondary so app tint does not recolor labels (esp. tvOS links).
-            Text(album.displayTitle)
-                .font(.headline)
-                .foregroundStyle(Color.primary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, minHeight: titleLineHeight * 2, alignment: .topLeading)
+            // Pack title + artist tightly; reserve caption height so covers stay
+            // top-aligned across the row without a gap between a 1-line title and artist.
+            VStack(alignment: .leading, spacing: 2) {
+                Text(album.displayTitle)
+                    .font(.headline)
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Text(album.displayArtist)
-                .font(.subheadline)
-                .foregroundStyle(Color.secondary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, minHeight: artistLineHeight, alignment: .topLeading)
+                Text(album.displayArtist)
+                    .font(.subheadline)
+                    .foregroundStyle(Color.secondary)
+                    .lineLimit(1)
+            }
+            .frame(
+                maxWidth: .infinity,
+                minHeight: titleLineHeight * 2 + 2 + artistLineHeight,
+                alignment: .topLeading
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .tint(Color.primary)
