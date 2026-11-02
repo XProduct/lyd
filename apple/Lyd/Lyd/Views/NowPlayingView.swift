@@ -131,8 +131,8 @@ struct NowPlayingView: View {
                     tvOSPrimaryPage
                         .frame(minHeight: max(geo.size.height, 720))
                         .padding(.horizontal, 48)
-                        .padding(.top, 36)
-                        .padding(.bottom, 24)
+                        .padding(.top, 12)
+                        .padding(.bottom, 12)
 
                     Color.clear
                         .frame(height: secondaryOffset)
@@ -145,6 +145,7 @@ struct NowPlayingView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .background(LydTheme.nowPlayingBackground.ignoresSafeArea())
         .scrollableNavigationTitle()
         .onAppear { volumeDraft = session.playback.volume }
     }
@@ -153,14 +154,15 @@ struct NowPlayingView: View {
     private var tvOSPrimaryPage: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollablePageTitle(title: "Now Playing")
-                .padding(.bottom, 28)
+                .padding(.bottom, 8)
 
+            // Center cover + right column in the remaining viewport under the title.
             HStack(alignment: .center, spacing: 48) {
                 CoverImage(url: coverURL)
                     .aspectRatio(1, contentMode: .fit)
                     .frame(maxWidth: 520)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .shadow(color: .black.opacity(0.45), radius: 24, y: 14)
+                    .shadow(color: .black.opacity(0.55), radius: 28, y: 16)
                     .accessibilityHidden(true)
 
                 // Intrinsic height so HStack centers this block against the cover.

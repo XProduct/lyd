@@ -11,6 +11,9 @@ enum LydTheme {
     /// Windows chrome background `StandardGray` — `#1E1E1E`
     static let chrome = Color(red: 30 / 255, green: 30 / 255, blue: 30 / 255)
 
+    /// Near-black stage for tvOS Now Playing (darker than chrome).
+    static let nowPlayingBackground = Color(red: 8 / 255, green: 8 / 255, blue: 10 / 255)
+
     /// Windows `Foreground` — `#F4F4F5`
     static let onChrome = Color(red: 244 / 255, green: 244 / 255, blue: 245 / 255)
 }
