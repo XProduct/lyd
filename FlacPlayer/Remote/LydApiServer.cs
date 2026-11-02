@@ -224,18 +224,61 @@ namespace FlacPlayer.Remote
                     return;
                 }
 
-                if (method == "GET" && path.StartsWith("/api/v1/stream/songs/", StringComparison.OrdinalIgnoreCase))
+                if ((method == "GET" || method == "HEAD") && path.StartsWith("/api/v1/stream/songs/", StringComparison.OrdinalIgnoreCase))
                 {
                     string songId = Uri.UnescapeDataString(path.Substring("/api/v1/stream/songs/".Length));
-                    HandleSongStream(context, songId);
+                    HandleSongStream(context, songId, headOnly: method == "HEAD");
                     return;
                 }
 
                 if (method == "POST" && path == "/api/v1/playback/output")
                 {
                     var body = ReadJson<OutputRequest>(context) ?? new OutputRequest();
-                    InvokeOnUi(() => _control.SetOutput(body.DeviceId, body.DeviceName));
+                    InvokeOnUi(() => _control.SetOutput(body));
                     WriteJson(context, 200, _control.GetPlaybackState());
+                    return;
+                }
+
+                if (method == "GET" && path == "/api/v1/players")
+                {
+                    WriteJson(context, 200, new { players = _control.ListPlayers() });
+                    return;
+                }
+
+                if (method == "POST" && path == "/api/v1/players/register")
+                {
+                    var body = ReadJson<PlayerRegisterRequest>(context);
+                    if (body == null || string.IsNullOrEmpty(body.DeviceId))
+                    {
+                        WriteJson(context, 400, new { error = "deviceId_required" });
+                        return;
+                    }
+                    RegisteredPlayerDto registered = null;
+                    InvokeOnUi(() => registered = _control.RegisterPlayer(body));
+                    WriteJson(context, 200, registered);
+                    return;
+                }
+
+                // Apple posts /playback/heartbeat; also accept /players/heartbeat.
+                if (method == "POST" && (path == "/api/v1/players/heartbeat" || path == "/api/v1/playback/heartbeat"))
+                {
+                    var body = ReadJson<PlayerHeartbeatRequest>(context) ?? new PlayerHeartbeatRequest();
+                    if (string.IsNullOrEmpty(body.DeviceId))
+                    {
+                        WriteJson(context, 400, new { error = "deviceId_required" });
+                        return;
+                    }
+                    InvokeOnUi(() => _control.ReportPlayerHeartbeat(body.DeviceId, body.PositionMs, body.IsPlaying));
+                    WriteJson(context, 200, _control.GetPlaybackState());
+                    return;
+                }
+
+                if (method == "DELETE" && path.StartsWith("/api/v1/players/", StringComparison.OrdinalIgnoreCase))
+                {
+                    string deviceId = Uri.UnescapeDataString(path.Substring("/api/v1/players/".Length));
+                    bool removed = false;
+                    InvokeOnUi(() => removed = _control.UnregisterPlayer(deviceId));
+                    WriteJson(context, removed ? 200 : 404, removed ? (object)new { ok = true } : new { error = "player_not_found" });
                     return;
                 }
 
@@ -352,7 +395,7 @@ namespace FlacPlayer.Remote
             }
         }
 
-        private void HandleSongStream(HttpListenerContext context, string songId)
+        private void HandleSongStream(HttpListenerContext context, string songId, bool headOnly = false)
         {
             string filePath;
             if (string.IsNullOrEmpty(songId) || !_control.TryGetSongPath(songId, out filePath) || !File.Exists(filePath))
@@ -417,6 +460,13 @@ namespace FlacPlayer.Remote
                 context.Response.Headers["Content-Range"] = "bytes " + start + "-" + end + "/" + fileLength;
             }
             context.Response.ContentLength64 = contentLength;
+
+            // HttpListener hangs if a body is written for HEAD — headers only.
+            if (headOnly)
+            {
+                context.Response.OutputStream.Close();
+                return;
+            }
 
             const int bufferSize = 81920;
             byte[] buffer = new byte[bufferSize];
@@ -541,7 +591,11 @@ namespace FlacPlayer.Remote
             context.Response.Headers["ETag"] = FormatEtag(revision);
             context.Response.Headers["Cache-Control"] = "no-cache";
             context.Response.ContentLength64 = bytes.LongLength;
-            context.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            bool headOnly = string.Equals(context.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase);
+            if (!headOnly)
+            {
+                context.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            }
             context.Response.OutputStream.Close();
         }
 
@@ -556,7 +610,12 @@ namespace FlacPlayer.Remote
             context.Response.StatusCode = status;
             context.Response.ContentType = contentType;
             context.Response.ContentLength64 = bytes.LongLength;
-            context.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            // Writing a body on HEAD makes HttpListener hang (client expects headers only).
+            bool headOnly = string.Equals(context.Request.HttpMethod, "HEAD", StringComparison.OrdinalIgnoreCase);
+            if (!headOnly && bytes != null && bytes.Length > 0)
+            {
+                context.Response.OutputStream.Write(bytes, 0, bytes.Length);
+            }
             context.Response.OutputStream.Close();
         }
 

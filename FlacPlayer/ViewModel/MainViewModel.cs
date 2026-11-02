@@ -29,12 +29,18 @@ namespace FlacPlayer.ViewModel
 
         /// <summary>One shared session per host process (Phase E).</summary>
         private readonly string _sessionId = Guid.NewGuid().ToString("N");
-        private string _outputDeviceId = "host";
-        private string _outputDeviceName;
+        private readonly HashSet<string> _outputDeviceIds =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "host" };
+        private readonly Dictionary<string, string> _outputDeviceNames =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private bool _remoteSessionPlaying;
         private long _remotePositionMs;
         private long _remoteDurationMs;
         private readonly Stopwatch _remotePositionWatch = new Stopwatch();
+        /// <summary>Bumped on host transport changes so Apple players can fan-in commands.</summary>
+        private long _transportSeq;
+        /// <summary>Bumped on seek / new track so Apple AVPlayer re-seeks.</summary>
+        private long _seekGeneration;
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
@@ -70,7 +76,7 @@ namespace FlacPlayer.ViewModel
             StartSongPositionListener();
 
             // LAN remote API + mDNS
-            _outputDeviceName = RemoteDisplayName;
+            _outputDeviceNames["host"] = RemoteDisplayName;
             RemotePort = WebSocketService.Port > 0 ? WebSocketService.Port : 8080;
             LydRemoteInstructions = "Lyd Remote is starting...";
             WebSocketService.SetControl(new MainRemoteControl(this));
@@ -512,17 +518,33 @@ namespace FlacPlayer.ViewModel
         {
             get
             {
-                return IsHostAudioOutput ? Player.IsPlaying() : _remoteSessionPlaying;
+                if (IsHostInOutputSet)
+                {
+                    return Player.IsPlaying();
+                }
+                return HasRemoteOutput && _remoteSessionPlaying;
             }
         }
 
-        private bool IsHostAudioOutput
+        /// <summary>True when Windows irrKlang is in the selected output set.</summary>
+        private bool IsHostInOutputSet
+        {
+            get { return _outputDeviceIds.Contains("host"); }
+        }
+
+        /// <summary>True when at least one non-host (Apple) device is selected to render.</summary>
+        private bool HasRemoteOutput
         {
             get
             {
-                return string.IsNullOrEmpty(_outputDeviceId)
-                    || string.Equals(_outputDeviceId, "host", StringComparison.OrdinalIgnoreCase);
+                return _outputDeviceIds.Any(id =>
+                    !string.Equals(id, "host", StringComparison.OrdinalIgnoreCase));
             }
+        }
+
+        private bool IsOutputDevice(string deviceId)
+        {
+            return !string.IsNullOrWhiteSpace(deviceId) && _outputDeviceIds.Contains(deviceId.Trim());
         }
 
         /// <summary>
@@ -1378,15 +1400,19 @@ namespace FlacPlayer.ViewModel
 
         private void Play()
         {
-            if (IsHostAudioOutput)
+            if (IsHostInOutputSet)
             {
                 Player.Play();
             }
-            else
+            if (HasRemoteOutput)
             {
                 _remoteSessionPlaying = true;
-                _remotePositionWatch.Start();
+                if (!_remotePositionWatch.IsRunning)
+                {
+                    _remotePositionWatch.Start();
+                }
             }
+            BumpTransportSeq();
         }
 
         private void PlayOnDemand()
@@ -1401,10 +1427,13 @@ namespace FlacPlayer.ViewModel
                 return;
             }
 
+            EnsureOutputSetNonEmpty();
             CurrentSongIndex = 0;
             UpdateCurrentSong(song);
             AddSongsToQueue();
             StartPlaybackForCurrentOutput(song);
+            BumpTransportSeq();
+            BumpSeekGeneration();
             RaisePropertyChanged(nameof(IsPlaying));
         }
 
@@ -1417,6 +1446,7 @@ namespace FlacPlayer.ViewModel
                 Song next = CurrentPlayQueue[CurrentSongIndex];
                 UpdateCurrentSong(next);
                 StartPlaybackForCurrentOutput(next);
+                BumpSeekGeneration();
             }
             else
             {
@@ -1428,22 +1458,24 @@ namespace FlacPlayer.ViewModel
                 CurrentTrackDuration = 0;
                 PercentageComplete = 0;
             }
+            BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
             return 0;
         }
 
         private void Pause()
         {
-            if (IsHostAudioOutput)
+            if (IsHostInOutputSet)
             {
                 Player.Pause();
             }
-            else
+            if (HasRemoteOutput)
             {
                 CaptureRemotePosition();
                 _remoteSessionPlaying = false;
                 _remotePositionWatch.Stop();
             }
+            BumpTransportSeq();
         }
 
         private void TogglePlayPause()
@@ -1460,26 +1492,62 @@ namespace FlacPlayer.ViewModel
             RaisePropertyChanged(nameof(IsPlaying));
         }
 
+        private void BumpTransportSeq()
+        {
+            Interlocked.Increment(ref _transportSeq);
+        }
+
+        private void BumpSeekGeneration()
+        {
+            Interlocked.Increment(ref _seekGeneration);
+        }
+
+        /// <summary>Never allow an empty output set (defaults to host).</summary>
+        private void EnsureOutputSetNonEmpty()
+        {
+            if (_outputDeviceIds.Count == 0)
+            {
+                _outputDeviceIds.Add("host");
+                _outputDeviceNames["host"] = RemoteDisplayName;
+            }
+        }
+
         /// <summary>
-        /// Host irrKlang when output is host; otherwise silence local audio and mark remote session playing.
+        /// Start audio on every selected output: irrKlang when host is selected; remote session
+        /// flag when any Apple device is selected (they pull the stream / follow transportSeq).
         /// </summary>
         private void StartPlaybackForCurrentOutput(Song song)
         {
-            if (IsHostAudioOutput)
+            EnsureOutputSetNonEmpty();
+            _remotePositionMs = 0;
+
+            if (IsHostInOutputSet)
             {
                 Player.Play(song.Path);
                 GetSongDuration();
-                _remoteSessionPlaying = false;
-                _remotePositionWatch.Reset();
-                _remotePositionMs = 0;
             }
             else
             {
                 SilenceHostPlayer();
+            }
+
+            if (HasRemoteOutput)
+            {
                 _remoteSessionPlaying = true;
-                _remotePositionMs = 0;
                 _remotePositionWatch.Restart();
-                SetRemoteDurationFromSong(song);
+                if (!IsHostInOutputSet)
+                {
+                    SetRemoteDurationFromSong(song);
+                }
+                else
+                {
+                    try { _remoteDurationMs = Player.GetCurrentSongDuration(); } catch { SetRemoteDurationFromSong(song); }
+                }
+            }
+            else
+            {
+                _remoteSessionPlaying = false;
+                _remotePositionWatch.Reset();
             }
         }
 
@@ -1713,7 +1781,7 @@ namespace FlacPlayer.ViewModel
         private void SetPlayTime()
         {
             int seconds = (int)(CurrentTrackDuration * PercentageComplete / 100);
-            Player.SetPlayPosition(seconds);
+            ApplySessionPosition(seconds * 1000L, bumpTransport: true);
         }
 
         private void StartSongPositionListener()
@@ -1728,20 +1796,41 @@ namespace FlacPlayer.ViewModel
         {
             if (IsPrecentageUpdateActive)
             {
-                long time = Player.GetCurrentSongPlayTime();
-                int currentSeconds = (int)time / 1000;
+                long timeMs;
+                bool finished;
 
-                if (Player.IsFinished())
+                if (IsHostInOutputSet)
                 {
-                    PlayNextSong();
+                    timeMs = Player.GetCurrentSongPlayTime();
+                    if (timeMs < 0) timeMs = 0;
+                    finished = Player.IsFinished();
                 }
                 else
                 {
+                    // Shared session with Apple-only outputs: WPF still drives the playhead UI.
+                    timeMs = _remotePositionMs;
+                    if (_remoteSessionPlaying && _remotePositionWatch.IsRunning)
+                    {
+                        timeMs += _remotePositionWatch.ElapsedMilliseconds;
+                    }
+                    finished = _remoteSessionPlaying
+                        && _remoteDurationMs > 0
+                        && timeMs >= _remoteDurationMs;
+                }
+
+                int currentSeconds = (int)(timeMs / 1000);
+
+                if (finished)
+                {
+                    PlayNextSong();
+                }
+                else if (IsPlaying || HasRemoteOutput)
+                {
+                    // Keep Now Playing chrome live for remote/multi output.
                     CurrentPositionText = currentSeconds / 60 + ":" + (currentSeconds % 60 < 10 ? "0" + currentSeconds % 60 : (currentSeconds % 60).ToString());
 
                     if (CurrentTrackDuration != 0)
                     {
-
                         PercentageComplete = (((double)currentSeconds / CurrentTrackDuration) * 100);
                     }
                 }
@@ -1757,6 +1846,7 @@ namespace FlacPlayer.ViewModel
         {
             IsShuffleMode = !IsShuffleMode;
             AddSongsToQueue();
+            BumpTransportSeq();
         }
 
         private void Shuffle()
@@ -1775,7 +1865,9 @@ namespace FlacPlayer.ViewModel
                 Song prev = CurrentPlayQueue[CurrentSongIndex];
                 UpdateCurrentSong(prev);
                 StartPlaybackForCurrentOutput(prev);
+                BumpSeekGeneration();
             }
+            BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
         }
 
@@ -1820,7 +1912,7 @@ namespace FlacPlayer.ViewModel
             long duration;
             bool playing;
 
-            if (IsHostAudioOutput)
+            if (IsHostInOutputSet)
             {
                 position = Player.GetCurrentSongPlayTime();
                 if (position < 0) position = 0;
@@ -1839,8 +1931,25 @@ namespace FlacPlayer.ViewModel
                 playing = _remoteSessionPlaying;
             }
 
+            EnsureOutputSetNonEmpty();
             string songId = CurrentPlayingSong != null ? CurrentPlayingSong.ID : null;
             string streamUrl = string.IsNullOrEmpty(songId) ? null : "/api/v1/stream/songs/" + songId;
+            OutputDeviceDto[] outputs = BuildOutputDeviceDtos();
+            string[] ids = outputs.Select(o => o.DeviceId).ToArray();
+            OutputDeviceDto[] remotes = outputs.Where(o => !o.IsHost).ToArray();
+            bool anyRemote = remotes.Length > 0;
+            bool anyHost = outputs.Any(o => o.IsHost);
+            // Apple E1 checks outputTarget == "remote" && outputDeviceId == myDeviceId.
+            // Prefer a remote id whenever remotes are selected so AVPlayer starts (host may also be selected).
+            string legacyId = anyRemote ? remotes[0].DeviceId : "host";
+            string legacyName = anyRemote ? remotes[0].Name : RemoteDisplayName;
+            // Apple multi-output: "multi" when host + remote; sticky sync prefers OutputTargets.
+            string outputTarget = anyRemote && anyHost ? "multi" : (anyRemote ? "remote" : "host");
+            OutputTargetDto[] outputTargets = outputs.Select(o => new OutputTargetDto
+            {
+                DeviceId = o.DeviceId,
+                DeviceName = o.Name
+            }).ToArray();
 
             return new PlaybackStateDto
             {
@@ -1852,12 +1961,48 @@ namespace FlacPlayer.ViewModel
                 CurrentSong = CurrentPlayingSong != null && !string.IsNullOrEmpty(CurrentPlayingSong.Path) ? MapSongDto(CurrentPlayingSong) : null,
                 Volume = Player.GetVolume(),
                 SessionId = _sessionId,
-                OutputDeviceId = IsHostAudioOutput ? "host" : _outputDeviceId,
-                OutputDeviceName = IsHostAudioOutput
-                    ? (string.IsNullOrEmpty(_outputDeviceName) ? RemoteDisplayName : _outputDeviceName)
-                    : _outputDeviceName,
-                StreamUrl = streamUrl
+                OutputDeviceIds = ids,
+                OutputDevices = outputs,
+                OutputTargets = outputTargets,
+                OutputTarget = outputTarget,
+                OutputDeviceId = legacyId,
+                OutputDeviceName = legacyName,
+                StreamUrl = streamUrl,
+                TransportSeq = _transportSeq,
+                SeekGeneration = _seekGeneration
             };
+        }
+
+        private OutputDeviceDto[] BuildOutputDeviceDtos()
+        {
+            return _outputDeviceIds
+                .OrderBy(id => string.Equals(id, "host", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(id => id, StringComparer.OrdinalIgnoreCase)
+                .Select(id =>
+                {
+                    bool isHost = string.Equals(id, "host", StringComparison.OrdinalIgnoreCase);
+                    string name;
+                    if (!_outputDeviceNames.TryGetValue(id, out name) || string.IsNullOrWhiteSpace(name))
+                    {
+                        if (isHost)
+                        {
+                            name = RemoteDisplayName;
+                        }
+                        else
+                        {
+                            RegisteredPlayer registered = PlayerRegistry.Instance.ListActive()
+                                .FirstOrDefault(p => string.Equals(p.DeviceId, id, StringComparison.OrdinalIgnoreCase));
+                            name = registered != null ? registered.Name : id;
+                        }
+                    }
+                    return new OutputDeviceDto
+                    {
+                        DeviceId = isHost ? "host" : id,
+                        Name = name,
+                        IsHost = isHost
+                    };
+                })
+                .ToArray();
         }
 
         public void RemotePlaySong(string songId)
@@ -1912,6 +2057,7 @@ namespace FlacPlayer.ViewModel
             {
                 IsShuffleMode = enabled.Value;
                 AddSongsToQueue();
+                BumpTransportSeq();
             }
             else
             {
@@ -1921,12 +2067,20 @@ namespace FlacPlayer.ViewModel
 
         public void RemoteSeek(long positionMs)
         {
+            ApplySessionPosition(positionMs, bumpTransport: true);
+        }
+
+        /// <summary>
+        /// Apply a playhead position. Host/UI seeks bump transportSeq; Apple output heartbeats do not.
+        /// </summary>
+        private void ApplySessionPosition(long positionMs, bool bumpTransport)
+        {
             if (positionMs < 0) positionMs = 0;
-            if (IsHostAudioOutput)
+            if (IsHostInOutputSet)
             {
                 Player.SetPlayPosition((int)(positionMs / 1000));
             }
-            else
+            if (HasRemoteOutput)
             {
                 _remotePositionMs = positionMs;
                 if (_remoteSessionPlaying)
@@ -1938,6 +2092,11 @@ namespace FlacPlayer.ViewModel
                     _remotePositionWatch.Reset();
                 }
             }
+            if (bumpTransport)
+            {
+                BumpTransportSeq();
+                BumpSeekGeneration();
+            }
         }
 
         public void RemoteSetVolume(double level)
@@ -1947,58 +2106,338 @@ namespace FlacPlayer.ViewModel
         }
 
         /// <summary>
-        /// E1: set Playing-on target. Non-host output silences irrKlang; session remains authoritative.
+        /// Explicit multi-select of who renders audio. Empty selection falls back to host.
+        /// Remotes not in the set must not render; host irrKlang only when "host" is selected.
         /// </summary>
-        public void RemoteSetOutput(string deviceId, string deviceName)
+        public void RemoteSetOutput(OutputRequest request)
         {
-            string nextId = string.IsNullOrWhiteSpace(deviceId) ? "host" : deviceId.Trim();
-            bool nextIsHost = string.Equals(nextId, "host", StringComparison.OrdinalIgnoreCase);
-            bool wasHost = IsHostAudioOutput;
+            var nextIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var nextNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            if (wasHost && !nextIsHost)
+            if (request != null)
             {
-                // Leaving host: capture position and silence local audio.
-                long pos = Player.GetCurrentSongPlayTime();
-                if (pos < 0) pos = 0;
-                bool playing = Player.IsPlaying();
-                long dur = 0;
-                try { dur = Player.GetCurrentSongDuration(); } catch { }
-                SilenceHostPlayer();
-                _remotePositionMs = pos;
-                _remoteDurationMs = dur > 0 ? dur : _remoteDurationMs;
-                _remoteSessionPlaying = playing;
-                if (playing) { _remotePositionWatch.Restart(); } else { _remotePositionWatch.Reset(); }
-            }
-            else if (!wasHost && nextIsHost)
-            {
-                // Returning to host: resume irrKlang at last known position when session is playing.
-                CaptureRemotePosition();
-                bool resume = _remoteSessionPlaying;
-                long pos = _remotePositionMs;
-                _remoteSessionPlaying = false;
-                _remotePositionWatch.Reset();
-                if (resume && CurrentPlayingSong != null && !string.IsNullOrEmpty(CurrentPlayingSong.Path))
+                // Apple multi-output posts { targets: [{ deviceId, deviceName }] }.
+                // When Targets is present it is authoritative — never ignore and fall back to host-only.
+                if (request.Targets != null)
                 {
-                    Player.Play(CurrentPlayingSong.Path);
-                    if (pos > 0)
+                    foreach (OutputTargetDto target in request.Targets)
                     {
-                        Player.SetPlayPosition((int)(pos / 1000));
+                        if (target == null || string.IsNullOrWhiteSpace(target.DeviceId))
+                        {
+                            continue;
+                        }
+                        string id = NormalizeOutputId(target.DeviceId);
+                        nextIds.Add(id);
+                        if (!string.IsNullOrWhiteSpace(target.DeviceName))
+                        {
+                            nextNames[id] = target.DeviceName.Trim();
+                        }
                     }
-                    GetSongDuration();
+                }
+                else
+                {
+                    bool hasMulti = (request.Devices != null && request.Devices.Length > 0)
+                        || (request.DeviceIds != null && request.DeviceIds.Length > 0);
+
+                    if (hasMulti)
+                    {
+                        if (request.Devices != null)
+                        {
+                            foreach (OutputDeviceDto device in request.Devices)
+                            {
+                                if (device == null || string.IsNullOrWhiteSpace(device.DeviceId))
+                                {
+                                    continue;
+                                }
+                                string id = NormalizeOutputId(device.DeviceId);
+                                nextIds.Add(id);
+                                if (!string.IsNullOrWhiteSpace(device.Name))
+                                {
+                                    nextNames[id] = device.Name.Trim();
+                                }
+                            }
+                        }
+
+                        if (request.DeviceIds != null)
+                        {
+                            foreach (string raw in request.DeviceIds)
+                            {
+                                if (string.IsNullOrWhiteSpace(raw))
+                                {
+                                    continue;
+                                }
+                                nextIds.Add(NormalizeOutputId(raw));
+                            }
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(request.Target))
+                    {
+                        // Apple E1: { target: "host"|"remote", deviceId, deviceName }
+                        if (string.Equals(request.Target, "host", StringComparison.OrdinalIgnoreCase))
+                        {
+                            nextIds.Add("host");
+                            nextNames["host"] = string.IsNullOrWhiteSpace(request.DeviceName)
+                                ? RemoteDisplayName
+                                : request.DeviceName.Trim();
+                        }
+                        else
+                        {
+                            // "remote" — exclusive Apple renderer (E1).
+                            if (!string.IsNullOrWhiteSpace(request.DeviceId))
+                            {
+                                string id = NormalizeOutputId(request.DeviceId);
+                                nextIds.Add(id);
+                                if (!string.IsNullOrWhiteSpace(request.DeviceName))
+                                {
+                                    nextNames[id] = request.DeviceName.Trim();
+                                }
+                            }
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(request.DeviceId))
+                    {
+                        // Legacy single-device body without target.
+                        string id = NormalizeOutputId(request.DeviceId);
+                        nextIds.Add(id);
+                        if (!string.IsNullOrWhiteSpace(request.DeviceName))
+                        {
+                            nextNames[id] = request.DeviceName.Trim();
+                        }
+                    }
                 }
             }
 
-            _outputDeviceId = nextIsHost ? "host" : nextId;
-            if (!string.IsNullOrWhiteSpace(deviceName))
+            // Never leave the session with zero outputs (would mute everyone).
+            if (nextIds.Count == 0)
             {
-                _outputDeviceName = deviceName.Trim();
-            }
-            else if (nextIsHost)
-            {
-                _outputDeviceName = RemoteDisplayName;
+                nextIds.Add("host");
             }
 
+            if (!nextNames.ContainsKey("host") && nextIds.Contains("host"))
+            {
+                nextNames["host"] = RemoteDisplayName;
+            }
+
+            bool wasHost = IsHostInOutputSet;
+            bool hadRemote = HasRemoteOutput;
+            bool wasPlaying = IsPlaying;
+            long pos = 0;
+            long dur = 0;
+            if (wasHost)
+            {
+                pos = Player.GetCurrentSongPlayTime();
+                if (pos < 0) pos = 0;
+                try { dur = Player.GetCurrentSongDuration(); } catch { }
+            }
+            else
+            {
+                pos = _remotePositionMs;
+                if (_remoteSessionPlaying && _remotePositionWatch.IsRunning)
+                {
+                    pos += _remotePositionWatch.ElapsedMilliseconds;
+                }
+                dur = _remoteDurationMs;
+            }
+
+            _outputDeviceIds.Clear();
+            foreach (string id in nextIds)
+            {
+                _outputDeviceIds.Add(id);
+            }
+            foreach (var kv in nextNames)
+            {
+                _outputDeviceNames[kv.Key] = kv.Value;
+            }
+            // Drop stale names for devices no longer selected (keep host name).
+            var stale = _outputDeviceNames.Keys
+                .Where(k => !string.Equals(k, "host", StringComparison.OrdinalIgnoreCase) && !_outputDeviceIds.Contains(k))
+                .ToList();
+            foreach (string key in stale)
+            {
+                _outputDeviceNames.Remove(key);
+            }
+
+            bool nowHost = IsHostInOutputSet;
+            bool nowRemote = HasRemoteOutput;
+
+            if (wasHost && !nowHost)
+            {
+                SilenceHostPlayer();
+                _remotePositionMs = pos;
+                _remoteDurationMs = dur > 0 ? dur : _remoteDurationMs;
+            }
+            else if (!wasHost && nowHost
+                && wasPlaying
+                && CurrentPlayingSong != null
+                && !string.IsNullOrEmpty(CurrentPlayingSong.Path))
+            {
+                CaptureRemotePosition();
+                Player.Play(CurrentPlayingSong.Path);
+                if (pos > 0)
+                {
+                    Player.SetPlayPosition((int)(pos / 1000));
+                }
+                GetSongDuration();
+            }
+
+            if (nowRemote)
+            {
+                _remoteSessionPlaying = wasPlaying || (nowHost && Player.IsPlaying());
+                _remotePositionMs = pos;
+                if (dur > 0) _remoteDurationMs = dur;
+                if (_remoteSessionPlaying)
+                {
+                    _remotePositionWatch.Restart();
+                }
+                else
+                {
+                    _remotePositionWatch.Reset();
+                }
+            }
+            else
+            {
+                _remoteSessionPlaying = false;
+                _remotePositionWatch.Reset();
+            }
+
+            // Adding host alongside remotes while already playing: ensure irrKlang is audible.
+            if (!wasHost && nowHost && hadRemote && wasPlaying
+                && CurrentPlayingSong != null && !string.IsNullOrEmpty(CurrentPlayingSong.Path)
+                && !Player.IsPlaying())
+            {
+                Player.Play(CurrentPlayingSong.Path);
+                if (pos > 0)
+                {
+                    Player.SetPlayPosition((int)(pos / 1000));
+                }
+                GetSongDuration();
+            }
+
+            BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
+            RaisePropertyChanged(nameof(PlayingOnLabel));
+        }
+
+        private static string NormalizeOutputId(string deviceId)
+        {
+            string id = deviceId.Trim();
+            return string.Equals(id, "host", StringComparison.OrdinalIgnoreCase) ? "host" : id;
+        }
+
+        /// <summary>Settings / Now Playing subtitle: where audio is rendering.</summary>
+        public string PlayingOnLabel
+        {
+            get
+            {
+                OutputDeviceDto[] outputs = BuildOutputDeviceDtos();
+                if (outputs.Length == 0)
+                {
+                    return "Playing on: " + RemoteDisplayName + " (this PC)";
+                }
+                string names = string.Join(", ", outputs.Select(o =>
+                    o.IsHost ? o.Name + " (this PC)" : o.Name));
+                return "Playing on: " + names;
+            }
+        }
+
+        public RegisteredPlayerDto RegisterRemotePlayer(PlayerRegisterRequest request)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.DeviceId))
+            {
+                return null;
+            }
+            RegisteredPlayer player = PlayerRegistry.Instance.Register(
+                request.DeviceId,
+                request.Name,
+                request.Platform,
+                request.Capabilities);
+            return ToPlayerDto(player);
+        }
+
+        public bool UnregisterRemotePlayer(string deviceId)
+        {
+            bool removed = PlayerRegistry.Instance.Unregister(deviceId);
+            if (removed && IsOutputDevice(deviceId))
+            {
+                _outputDeviceIds.Remove(deviceId.Trim());
+                _outputDeviceNames.Remove(deviceId.Trim());
+                if (_outputDeviceIds.Count == 0)
+                {
+                    _outputDeviceIds.Add("host");
+                    _outputDeviceNames["host"] = RemoteDisplayName;
+                }
+                // Re-apply so irrKlang / remote session flags match the new set.
+                RemoteSetOutput(new OutputRequest
+                {
+                    DeviceIds = _outputDeviceIds.ToArray(),
+                    Devices = BuildOutputDeviceDtos()
+                });
+            }
+            return removed;
+        }
+
+        public IList<RegisteredPlayerDto> ListRemotePlayers()
+        {
+            return PlayerRegistry.Instance.ListActive().Select(ToPlayerDto).ToList();
+        }
+
+        public void RemotePlayerHeartbeat(string deviceId, long? positionMs, bool? isPlaying)
+        {
+            RegisteredPlayer player;
+            if (!string.IsNullOrWhiteSpace(deviceId))
+            {
+                if (!PlayerRegistry.Instance.Heartbeat(deviceId, out player))
+                {
+                    // Auto-register minimal entry so heartbeats from Playing-on device still land.
+                    PlayerRegistry.Instance.Register(deviceId, deviceId, "unknown", new[] { "play" });
+                    PlayerRegistry.Instance.Heartbeat(deviceId, out player);
+                }
+            }
+
+            // Only selected output remotes may contribute position; others must not render.
+            if (IsOutputDevice(deviceId) && !IsHostInOutputSet)
+            {
+                if (positionMs.HasValue)
+                {
+                    ApplySessionPosition(positionMs.Value, bumpTransport: false);
+                }
+                if (isPlaying.HasValue)
+                {
+                    if (isPlaying.Value && !_remoteSessionPlaying)
+                    {
+                        _remoteSessionPlaying = true;
+                        _remotePositionWatch.Start();
+                    }
+                    else if (!isPlaying.Value && _remoteSessionPlaying)
+                    {
+                        CaptureRemotePosition();
+                        _remoteSessionPlaying = false;
+                        _remotePositionWatch.Stop();
+                    }
+                    RaisePropertyChanged(nameof(IsPlaying));
+                }
+            }
+            else if (IsOutputDevice(deviceId) && IsHostInOutputSet && positionMs.HasValue)
+            {
+                // Host is authoritative for playhead when also selected; ignore remote isPlaying.
+            }
+        }
+
+        private RegisteredPlayerDto ToPlayerDto(RegisteredPlayer player)
+        {
+            if (player == null)
+            {
+                return null;
+            }
+            return new RegisteredPlayerDto
+            {
+                DeviceId = player.DeviceId,
+                Name = player.Name,
+                Platform = player.Platform,
+                Capabilities = player.Capabilities,
+                IsOutput = IsOutputDevice(player.DeviceId),
+                LastSeenUnixMs = new DateTimeOffset(player.LastSeenUtc).ToUnixTimeMilliseconds()
+            };
         }
 
         public bool TryGetRemoteSongPath(string songId, out string path)
