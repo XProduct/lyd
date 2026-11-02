@@ -259,7 +259,8 @@ namespace FlacPlayer.Remote
                     return;
                 }
 
-                if (method == "POST" && path == "/api/v1/players/heartbeat")
+                // Apple posts /playback/heartbeat; also accept /players/heartbeat.
+                if (method == "POST" && (path == "/api/v1/players/heartbeat" || path == "/api/v1/playback/heartbeat"))
                 {
                     var body = ReadJson<PlayerHeartbeatRequest>(context) ?? new PlayerHeartbeatRequest();
                     if (string.IsNullOrEmpty(body.DeviceId))

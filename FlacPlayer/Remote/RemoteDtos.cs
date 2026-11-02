@@ -58,14 +58,18 @@ namespace FlacPlayer.Remote
         public string SessionId { get; set; }
 
         /// <summary>
-        /// Legacy single output id (first selected). Prefer <see cref="OutputDeviceIds"/> for multi-select.
+        /// Legacy single output id. When remotes are selected, prefer a remote id so Apple
+        /// ``outputDeviceId == myDeviceId`` checks succeed; use <see cref="OutputDeviceIds"/> for multi.
         /// </summary>
         public string OutputDeviceId { get; set; }
 
         /// <summary>Legacy single output display name.</summary>
         public string OutputDeviceName { get; set; }
 
-        /// <summary>All devices currently selected to render audio (host + Apple players).</summary>
+        /// <summary>Phase E Apple contract: "host" | "remote" (remote if any Apple device is selected).</summary>
+        public string OutputTarget { get; set; }
+
+        /// <summary>All devices currently selected to render audio (host + Apple players). Never empty.</summary>
         public string[] OutputDeviceIds { get; set; }
 
         /// <summary>Selected outputs with display names — who is (allowed to be) playing.</summary>
@@ -79,6 +83,9 @@ namespace FlacPlayer.Remote
         /// when this value changes (command fan-out via shared session poll).
         /// </summary>
         public long TransportSeq { get; set; }
+
+        /// <summary>Bumped on seek / track start so Apple AVPlayer re-seeks (Phase E Apple field).</summary>
+        public long SeekGeneration { get; set; }
     }
 
     public sealed class OutputDeviceDto
@@ -111,6 +118,8 @@ namespace FlacPlayer.Remote
         public string DeviceId { get; set; }
         /// <summary>Optional position report from the rendering Apple player.</summary>
         public long? PositionMs { get; set; }
+        public long? DurationMs { get; set; }
+        public string SongId { get; set; }
         public bool? IsPlaying { get; set; }
     }
 
@@ -142,7 +151,10 @@ namespace FlacPlayer.Remote
     /// <summary>POST /api/v1/playback/output — explicit multi-select of who renders audio.</summary>
     public sealed class OutputRequest
     {
-        /// <summary>Legacy single id ("host" or a client device id).</summary>
+        /// <summary>Apple E1 field: "host" | "remote".</summary>
+        public string Target { get; set; }
+
+        /// <summary>Legacy / Apple single id ("host" or a client device id).</summary>
         public string DeviceId { get; set; }
         public string DeviceName { get; set; }
 

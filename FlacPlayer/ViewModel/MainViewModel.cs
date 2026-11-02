@@ -39,6 +39,8 @@ namespace FlacPlayer.ViewModel
         private readonly Stopwatch _remotePositionWatch = new Stopwatch();
         /// <summary>Bumped on host transport changes so Apple players can fan-in commands.</summary>
         private long _transportSeq;
+        /// <summary>Bumped on seek / new track so Apple AVPlayer re-seeks.</summary>
+        private long _seekGeneration;
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
@@ -1425,11 +1427,13 @@ namespace FlacPlayer.ViewModel
                 return;
             }
 
+            EnsureOutputSetNonEmpty();
             CurrentSongIndex = 0;
             UpdateCurrentSong(song);
             AddSongsToQueue();
             StartPlaybackForCurrentOutput(song);
             BumpTransportSeq();
+            BumpSeekGeneration();
             RaisePropertyChanged(nameof(IsPlaying));
         }
 
@@ -1442,6 +1446,7 @@ namespace FlacPlayer.ViewModel
                 Song next = CurrentPlayQueue[CurrentSongIndex];
                 UpdateCurrentSong(next);
                 StartPlaybackForCurrentOutput(next);
+                BumpSeekGeneration();
             }
             else
             {
@@ -1492,12 +1497,28 @@ namespace FlacPlayer.ViewModel
             Interlocked.Increment(ref _transportSeq);
         }
 
+        private void BumpSeekGeneration()
+        {
+            Interlocked.Increment(ref _seekGeneration);
+        }
+
+        /// <summary>Never allow an empty output set (defaults to host).</summary>
+        private void EnsureOutputSetNonEmpty()
+        {
+            if (_outputDeviceIds.Count == 0)
+            {
+                _outputDeviceIds.Add("host");
+                _outputDeviceNames["host"] = RemoteDisplayName;
+            }
+        }
+
         /// <summary>
         /// Start audio on every selected output: irrKlang when host is selected; remote session
         /// flag when any Apple device is selected (they pull the stream / follow transportSeq).
         /// </summary>
         private void StartPlaybackForCurrentOutput(Song song)
         {
+            EnsureOutputSetNonEmpty();
             _remotePositionMs = 0;
 
             if (IsHostInOutputSet)
@@ -1844,6 +1865,7 @@ namespace FlacPlayer.ViewModel
                 Song prev = CurrentPlayQueue[CurrentSongIndex];
                 UpdateCurrentSong(prev);
                 StartPlaybackForCurrentOutput(prev);
+                BumpSeekGeneration();
             }
             BumpTransportSeq();
             RaisePropertyChanged(nameof(IsPlaying));
@@ -1909,10 +1931,17 @@ namespace FlacPlayer.ViewModel
                 playing = _remoteSessionPlaying;
             }
 
+            EnsureOutputSetNonEmpty();
             string songId = CurrentPlayingSong != null ? CurrentPlayingSong.ID : null;
             string streamUrl = string.IsNullOrEmpty(songId) ? null : "/api/v1/stream/songs/" + songId;
             OutputDeviceDto[] outputs = BuildOutputDeviceDtos();
             string[] ids = outputs.Select(o => o.DeviceId).ToArray();
+            OutputDeviceDto[] remotes = outputs.Where(o => !o.IsHost).ToArray();
+            bool anyRemote = remotes.Length > 0;
+            // Apple E1 checks outputTarget == "remote" && outputDeviceId == myDeviceId.
+            // Prefer a remote id whenever remotes are selected so AVPlayer starts (host may also be selected).
+            string legacyId = anyRemote ? remotes[0].DeviceId : "host";
+            string legacyName = anyRemote ? remotes[0].Name : RemoteDisplayName;
 
             return new PlaybackStateDto
             {
@@ -1926,15 +1955,12 @@ namespace FlacPlayer.ViewModel
                 SessionId = _sessionId,
                 OutputDeviceIds = ids,
                 OutputDevices = outputs,
-                // Legacy single fields: first selected (prefer host when present).
-                OutputDeviceId = ids.Length == 0 ? "host" : (IsHostInOutputSet ? "host" : ids[0]),
-                OutputDeviceName = outputs.Length == 0
-                    ? RemoteDisplayName
-                    : (IsHostInOutputSet
-                        ? outputs.First(o => o.IsHost).Name
-                        : outputs[0].Name),
+                OutputTarget = anyRemote ? "remote" : "host",
+                OutputDeviceId = legacyId,
+                OutputDeviceName = legacyName,
                 StreamUrl = streamUrl,
-                TransportSeq = _transportSeq
+                TransportSeq = _transportSeq,
+                SeekGeneration = _seekGeneration
             };
         }
 
@@ -2060,6 +2086,7 @@ namespace FlacPlayer.ViewModel
             if (bumpTransport)
             {
                 BumpTransportSeq();
+                BumpSeekGeneration();
             }
         }
 
@@ -2080,38 +2107,67 @@ namespace FlacPlayer.ViewModel
 
             if (request != null)
             {
-                if (request.Devices != null)
+                bool hasMulti = (request.Devices != null && request.Devices.Length > 0)
+                    || (request.DeviceIds != null && request.DeviceIds.Length > 0);
+
+                if (hasMulti)
                 {
-                    foreach (OutputDeviceDto device in request.Devices)
+                    if (request.Devices != null)
                     {
-                        if (device == null || string.IsNullOrWhiteSpace(device.DeviceId))
+                        foreach (OutputDeviceDto device in request.Devices)
                         {
-                            continue;
+                            if (device == null || string.IsNullOrWhiteSpace(device.DeviceId))
+                            {
+                                continue;
+                            }
+                            string id = NormalizeOutputId(device.DeviceId);
+                            nextIds.Add(id);
+                            if (!string.IsNullOrWhiteSpace(device.Name))
+                            {
+                                nextNames[id] = device.Name.Trim();
+                            }
                         }
-                        string id = NormalizeOutputId(device.DeviceId);
-                        nextIds.Add(id);
-                        if (!string.IsNullOrWhiteSpace(device.Name))
+                    }
+
+                    if (request.DeviceIds != null)
+                    {
+                        foreach (string raw in request.DeviceIds)
                         {
-                            nextNames[id] = device.Name.Trim();
+                            if (string.IsNullOrWhiteSpace(raw))
+                            {
+                                continue;
+                            }
+                            nextIds.Add(NormalizeOutputId(raw));
                         }
                     }
                 }
-
-                if (request.DeviceIds != null)
+                else if (!string.IsNullOrWhiteSpace(request.Target))
                 {
-                    foreach (string raw in request.DeviceIds)
+                    // Apple E1: { target: "host"|"remote", deviceId, deviceName }
+                    if (string.Equals(request.Target, "host", StringComparison.OrdinalIgnoreCase))
                     {
-                        if (string.IsNullOrWhiteSpace(raw))
+                        nextIds.Add("host");
+                        nextNames["host"] = string.IsNullOrWhiteSpace(request.DeviceName)
+                            ? RemoteDisplayName
+                            : request.DeviceName.Trim();
+                    }
+                    else
+                    {
+                        // "remote" — exclusive Apple renderer (E1). Multi-select uses deviceIds instead.
+                        if (!string.IsNullOrWhiteSpace(request.DeviceId))
                         {
-                            continue;
+                            string id = NormalizeOutputId(request.DeviceId);
+                            nextIds.Add(id);
+                            if (!string.IsNullOrWhiteSpace(request.DeviceName))
+                            {
+                                nextNames[id] = request.DeviceName.Trim();
+                            }
                         }
-                        nextIds.Add(NormalizeOutputId(raw));
                     }
                 }
-
-                // Legacy single-device body.
-                if (nextIds.Count == 0 && !string.IsNullOrWhiteSpace(request.DeviceId))
+                else if (!string.IsNullOrWhiteSpace(request.DeviceId))
                 {
+                    // Legacy single-device body without target.
                     string id = NormalizeOutputId(request.DeviceId);
                     nextIds.Add(id);
                     if (!string.IsNullOrWhiteSpace(request.DeviceName))
@@ -2121,6 +2177,7 @@ namespace FlacPlayer.ViewModel
                 }
             }
 
+            // Never leave the session with zero outputs (would mute everyone).
             if (nextIds.Count == 0)
             {
                 nextIds.Add("host");
