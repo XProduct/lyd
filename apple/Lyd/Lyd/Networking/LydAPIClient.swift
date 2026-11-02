@@ -5,6 +5,7 @@ enum LydAPIError: LocalizedError {
     case badStatus(Int, String?)
     case decoding(Error)
     case transport(Error)
+    case notModified
 
     var errorDescription: String? {
         switch self {
@@ -16,14 +17,24 @@ enum LydAPIError: LocalizedError {
             return "Decode failed: \(error.localizedDescription)"
         case .transport(let error):
             return error.localizedDescription
+        case .notModified:
+            return "Not modified"
         }
     }
+}
+
+/// Outcome of a revision-efficient library poll.
+enum LibrarySyncResult: Equatable {
+    case unchanged(revision: Int)
+    case updated(LibraryDto)
 }
 
 final class LydAPIClient: @unchecked Sendable {
     private let session: URLSession
     private let lock = NSLock()
     private var _baseURL: URL
+    /// Cached: nil = unknown, true/false after first revision-endpoint probe.
+    private var _thinRevisionSupported: Bool?
 
     var baseURL: URL {
         lock.lock(); defer { lock.unlock() }
@@ -45,6 +56,54 @@ final class LydAPIClient: @unchecked Sendable {
 
     func library() async throws -> LibraryDto {
         try await get("api/v1/library")
+    }
+
+    /// Cheap revision check via `GET /api/v1/library/revision`. Throws `badStatus(404)` when unsupported.
+    func libraryRevisionThin() async throws -> Int {
+        let dto: LibraryRevisionDto = try await get("api/v1/library/revision")
+        lock.lock(); _thinRevisionSupported = true; lock.unlock()
+        return dto.revision
+    }
+
+    /// Poll: return `.unchanged` when remote revision matches `knownRevision`; otherwise full library.
+    /// Prefers thin `/library/revision` or conditional `?revision=` / `If-None-Match`. Until Windows
+    /// ships those, falls back to one full `/library` fetch and compares the `revision` field locally.
+    func syncLibrary(knownRevision: Int, force: Bool) async throws -> LibrarySyncResult {
+        if force {
+            return .updated(try await library())
+        }
+
+        if knownRevision >= 0 {
+            // Planned conditional fetch — ignore unsupported responses.
+            do {
+                if let conditional = try await libraryIfUnchanged(knownRevision: knownRevision) {
+                    return conditional
+                }
+            } catch {
+                // Host may not support ?revision= / If-None-Match yet.
+            }
+
+            let thinKnown: Bool?
+            lock.lock(); thinKnown = _thinRevisionSupported; lock.unlock()
+            if thinKnown != false {
+                do {
+                    let remoteRevision = try await libraryRevisionThin()
+                    if remoteRevision == knownRevision {
+                        return .unchanged(revision: remoteRevision)
+                    }
+                    return .updated(try await library())
+                } catch let LydAPIError.badStatus(code, _) where code == 404 {
+                    lock.lock(); _thinRevisionSupported = false; lock.unlock()
+                }
+            }
+        }
+
+        // Stub against today's contract: full /library, replace only when revision changes.
+        let lib = try await library()
+        if knownRevision >= 0, lib.revision == knownRevision {
+            return .unchanged(revision: lib.revision)
+        }
+        return .updated(lib)
     }
 
     func playbackState() async throws -> PlaybackStateDto {
@@ -97,6 +156,37 @@ final class LydAPIClient: @unchecked Sendable {
     }
 
     // MARK: - HTTP
+
+    /// Returns `.unchanged` on 304, `.updated` on 200 with body, or `nil` if the host rejects the query.
+    private func libraryIfUnchanged(knownRevision: Int) async throws -> LibrarySyncResult? {
+        var request = try makeRequest(path: "api/v1/library", method: "GET")
+        guard var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.queryItems = [URLQueryItem(name: "revision", value: String(knownRevision))]
+        request.url = components.url
+        request.setValue(String(knownRevision), forHTTPHeaderField: "If-None-Match")
+
+        let (data, response) = try await perform(request)
+        guard let http = response as? HTTPURLResponse else { return nil }
+
+        if http.statusCode == 304 {
+            return .unchanged(revision: knownRevision)
+        }
+        if http.statusCode == 400 || http.statusCode == 404 {
+            return nil
+        }
+        try validate(response, data: data)
+        do {
+            let library = try LydJSON.decoder.decode(LibraryDto.self, from: data)
+            if library.revision == knownRevision {
+                return .unchanged(revision: library.revision)
+            }
+            return .updated(library)
+        } catch {
+            throw LydAPIError.decoding(error)
+        }
+    }
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
         let request = try makeRequest(path: path, method: "GET")

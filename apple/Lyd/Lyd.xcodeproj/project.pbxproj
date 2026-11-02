@@ -15,6 +15,7 @@
 		46A12CC8CF745176F068B0E4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D6701C326C5464EE745B69 /* RootView.swift */; };
 		50C1B6AB5F6A838BC5350306 /* BonjourBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C5259AE57643DF8EA50D1AD /* BonjourBrowser.swift */; };
 		5ACA02C5A371AFA81F6415EF /* SongsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842EF17DBA4EDFB98076618A /* SongsView.swift */; };
+		6CB20E6620F898843045A7B3 /* ConnectionStatusViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB3CC92BF6C524C10D42EDBB /* ConnectionStatusViews.swift */; };
 		76BCE2ACFA20EDAF4DD238A0 /* LydTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503079D6F0B7EDDEB659E212 /* LydTheme.swift */; };
 		7E155FD11CAE5B6E471FB501 /* LydApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2130C77D671F2F6858A2055 /* LydApp.swift */; };
 		82C34CE2E7289248A893A091 /* JSONCoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F940C79140F1B643307E56C /* JSONCoding.swift */; };
@@ -47,6 +48,7 @@
 		D8219F625C4FE4FD60BA9DFA /* AlbumDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumDetailView.swift; sourceTree = "<group>"; };
 		D9DBD052212D7F1F2CEB04AC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		F2130C77D671F2F6858A2055 /* LydApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LydApp.swift; sourceTree = "<group>"; };
+		FB3CC92BF6C524C10D42EDBB /* ConnectionStatusViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionStatusViews.swift; sourceTree = "<group>"; };
 		FB9F347DBA99979DF2B6B30C /* Lyd.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Lyd.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -75,6 +77,7 @@
 			children = (
 				D8219F625C4FE4FD60BA9DFA /* AlbumDetailView.swift */,
 				D731EE5D2703CB19BAA8673D /* AlbumsView.swift */,
+				FB3CC92BF6C524C10D42EDBB /* ConnectionStatusViews.swift */,
 				6D07B052D5277D8A04356788 /* LibraryShellView.swift */,
 				BEBF08FBCCF05A0EDF5C6615 /* NowPlayingView.swift */,
 				D1D6701C326C5464EE745B69 /* RootView.swift */,
@@ -215,6 +218,7 @@
 				A80FBBC4F5FF45B10EFF9BE9 /* AlbumDetailView.swift in Sources */,
 				F665F6C66252305189F32824 /* AlbumsView.swift in Sources */,
 				50C1B6AB5F6A838BC5350306 /* BonjourBrowser.swift in Sources */,
+				6CB20E6620F898843045A7B3 /* ConnectionStatusViews.swift in Sources */,
 				FC8B3C68636797411E479C8D /* HostAddress.swift in Sources */,
 				9FEF5775C7369FB00D705F4D /* HostPreferences.swift in Sources */,
 				82C34CE2E7289248A893A091 /* JSONCoding.swift in Sources */,
