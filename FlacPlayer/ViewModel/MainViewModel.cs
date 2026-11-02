@@ -1334,6 +1334,11 @@ namespace FlacPlayer.ViewModel
 
         private void PlayOnDemand(Song song)
         {
+            if (song == null || String.IsNullOrEmpty(song.Path))
+            {
+                return;
+            }
+
             Player.Play(song.Path);
             CurrentSongIndex = 0;
             GetSongDuration();
@@ -1384,11 +1389,16 @@ namespace FlacPlayer.ViewModel
 
         private void UpdateCurrentSong(Song song)
         {
-            if (!String.IsNullOrEmpty(song.Path))
+            if (song == null || String.IsNullOrEmpty(song.Path))
             {
-                CurrentPlayingSong = song;
-                CurrentPlayingSongCoverArt = Albums.Where(x => x.Title == CurrentPlayingSong.Album).FirstOrDefault().CoverArt;
+                return;
             }
+
+            CurrentPlayingSong = song;
+
+            // Albums may still be empty while files hydrate (e.g. Dropbox) or ID3/album refresh is in progress.
+            Album album = Albums.FirstOrDefault(x => x.Title == CurrentPlayingSong.Album);
+            CurrentPlayingSongCoverArt = album != null ? album.CoverArt : null;
         }
 
         private void GetSongDuration()
