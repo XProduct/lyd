@@ -85,25 +85,11 @@ final class LydSession: ObservableObject {
     /// Last sticky pin from the host (transport / one-shot glue — not rewritten every poll).
     private var stickyAnchorUnixMs: Int64?
     private var stickyPositionAtAnchorMs: Int64?
-    /// Throttle rate changes so 1 Hz polls cannot flutter AVPlayer.
-    private var lastRateChangeAt: Date?
-
-    /// Phase F: lock early, then mostly leave AVPlayer alone (wide deadband, rare rate, rarer seek).
+    /// Phase F: join catch-up once, then rate=1.0 and no mid-track sync seeks/rate (skips).
     private enum TimelineSync {
-        /// Inside this → rate 1.0, no seek (ignore small error / buffer jitter).
-        static let deadbandMs: Int64 = 350
-        /// Soft rate only when |skew| reaches this (moderate sustained drift).
-        static let rateSkewMs: Int64 = 600
-        /// Post-join hard seek — well above the 1–2s listen error; do not chase mid-track.
-        static let hardSeekSkewMs: Int64 = 5000
-        /// Join/ready: one catch-up seek if |skew| at least this.
+        /// Join/ready: one catch-up seek if |skew| at least this; then leave AVPlayer alone.
         static let joinSeekSkewMs: Int64 = 750
-        /// Narrow rate band (audible skips from 1.12× / 0.95× every poll).
-        static let rateFast: Float = 1.03
-        static let rateSlow: Float = 0.97
-        /// Minimum time between rate changes.
-        static let rateMinInterval: TimeInterval = 2.5
-        /// EMA for serverMinusClientMs (lower = smoother; poll RTT noise → less rate flutter).
+        /// EMA for serverMinusClientMs (poll RTT noise → stable desired at join).
         static let clockOffsetEmaAlpha: Double = 0.25
     }
 
@@ -256,7 +242,6 @@ final class LydSession: ObservableObject {
         hasHostClockOffset = false
         stickyAnchorUnixMs = nil
         stickyPositionAtAnchorMs = nil
-        lastRateChangeAt = nil
         registeredPlayers = []
         lastAppliedSeekGeneration = -1
         client = nil
@@ -961,7 +946,6 @@ final class LydSession: ObservableObject {
             if !previouslyLocal, let songId = remote.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? -1
                 didCorrectiveTimelineSeekThisItem = false
-                lastRateChangeAt = nil
                 let target = hostTimelineDesiredMs()
                 await startLocalStream(
                     songId: songId,
@@ -975,7 +959,6 @@ final class LydSession: ObservableObject {
             if let songId, songId != localPlayer.currentSongId {
                 lastAppliedSeekGeneration = remote.seekGeneration ?? lastAppliedSeekGeneration
                 didCorrectiveTimelineSeekThisItem = false
-                lastRateChangeAt = nil
                 let target = hostTimelineDesiredMs()
                 await startLocalStream(
                     songId: songId,
@@ -995,8 +978,9 @@ final class LydSession: ObservableObject {
             if generation != lastAppliedSeekGeneration {
                 lastAppliedSeekGeneration = generation
                 let target = hostTimelineDesiredMs()
-                if abs(target - localPlayer.positionMs) > 150 {
-                    await localPlayer.seek(positionMs: target, precise: true)
+                // Generous seek tolerance — precise mid-stream seeks rebuffer and click.
+                if abs(target - localPlayer.positionMs) > 400 {
+                    await localPlayer.seek(positionMs: target, precise: false)
                     localPlayer.setPlaybackRate(1.0)
                 }
             }
@@ -1009,9 +993,9 @@ final class LydSession: ObservableObject {
                 }
             }
 
-            // Phase F: drift follow — rate-adjust; hard seek only if skew is huge (≤1×/track).
+            // After join: keep rate at 1.0 only — no mid-track rate/seek follow (audible skips).
             if !suppressTransport, remote.isPlaying, localPlayer.currentSongId != nil {
-                await followHostTimeline(remote)
+                await followHostTimeline(remote, allowJoinSeek: false)
             }
         } else {
             if previouslyLocal {
@@ -1091,64 +1075,38 @@ final class LydSession: ObservableObject {
     }
 
     /// Align AVPlayer to host timeline. Corrections apply to **this device only**.
-    /// - Parameter allowJoinSeek: true from ready/join — one catch-up if badly off, then calm.
+    /// - Parameter allowJoinSeek: true only from ready — one catch-up if badly off, then never again.
     private func followHostTimeline(_ remote: PlaybackStateDto, allowJoinSeek: Bool = false) async {
-        guard remote.isPlaying || timelineSamplePlaying else {
-            if abs(localPlayer.playbackRate - 1.0) > 0.001 {
-                localPlayer.setPlaybackRate(1.0)
-            }
-            return
-        }
-
-        let desired = hostTimelineDesiredMs()
-        // Positive ⇒ local behind host; negative ⇒ local ahead of host.
-        let skew = desired - localPlayer.positionMs
-        let absSkew = abs(skew)
         let playing = remote.isPlaying || timelineSamplePlaying
+        guard playing else {
+            ensureUnityRate()
+            return
+        }
 
-        // Join/ready: one seek if badly off, then play at 1.0 (no rate ramp → skip).
-        if allowJoinSeek, !didCorrectiveTimelineSeekThisItem, absSkew >= TimelineSync.joinSeekSkewMs {
-            didCorrectiveTimelineSeekThisItem = true
-            await localPlayer.seek(positionMs: desired, precise: true)
-            if playing {
+        // Join/ready only: one seek if badly off. No mid-track drift seeks (they rebuffer/skip).
+        if allowJoinSeek, !didCorrectiveTimelineSeekThisItem {
+            let desired = hostTimelineDesiredMs()
+            let skew = desired - localPlayer.positionMs
+            if abs(skew) >= TimelineSync.joinSeekSkewMs {
+                didCorrectiveTimelineSeekThisItem = true
+                // Non-precise: avoid tight reseek clicks on LAN streams.
+                await localPlayer.seek(positionMs: desired, precise: false)
                 localPlayer.resume()
+            } else {
+                // Close enough at join — consume the once-per-track seek budget anyway
+                // so polls never hard-seek for ordinary drift.
+                didCorrectiveTimelineSeekThisItem = true
             }
+        }
+
+        ensureUnityRate()
+    }
+
+    /// Keep AVPlayer at 1.0× after lock — rate tweaks (even ±3%) click/skip on stream items.
+    private func ensureUnityRate() {
+        if abs(localPlayer.playbackRate - 1.0) > 0.001 {
             localPlayer.setPlaybackRate(1.0)
-            lastRateChangeAt = Date()
-            return
         }
-
-        // Post-join: only seek if truly huge (do not chase ~1–2s listen error).
-        if absSkew >= TimelineSync.hardSeekSkewMs, !didCorrectiveTimelineSeekThisItem {
-            didCorrectiveTimelineSeekThisItem = true
-            await localPlayer.seek(positionMs: desired, precise: true)
-            if playing {
-                localPlayer.resume()
-            }
-            localPlayer.setPlaybackRate(1.0)
-            lastRateChangeAt = Date()
-            return
-        }
-
-        // Wide deadband — leave AVPlayer alone.
-        if absSkew < TimelineSync.deadbandMs {
-            if abs(localPlayer.playbackRate - 1.0) > 0.001 {
-                localPlayer.setPlaybackRate(1.0)
-                lastRateChangeAt = Date()
-            }
-            return
-        }
-
-        // Moderate sustained drift only: narrow rate, throttled.
-        guard absSkew >= TimelineSync.rateSkewMs else { return }
-        if let last = lastRateChangeAt,
-           Date().timeIntervalSince(last) < TimelineSync.rateMinInterval {
-            return
-        }
-        let targetRate: Float = skew > 0 ? TimelineSync.rateFast : TimelineSync.rateSlow
-        if abs(localPlayer.playbackRate - targetRate) < 0.001 { return }
-        localPlayer.setPlaybackRate(targetRate)
-        lastRateChangeAt = Date()
     }
 
     private func markReachable() {

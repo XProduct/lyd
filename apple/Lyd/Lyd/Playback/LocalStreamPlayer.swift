@@ -50,12 +50,12 @@ final class LocalStreamPlayer: ObservableObject {
             options: [AVURLAssetPreferPreciseDurationAndTimingKey: false]
         )
         let item = AVPlayerItem(asset: asset)
-        // Small forward buffer; don't wait for a long warm-up before first frames.
-        item.preferredForwardBufferDuration = 1.0
+        // Deeper buffer + stall-wait: short buffer + no-wait was causing audible mid-track skips.
+        item.preferredForwardBufferDuration = 4.0
 
         let av = ensurePlayer()
         av.volume = volume
-        av.automaticallyWaitsToMinimizeStalling = false
+        av.automaticallyWaitsToMinimizeStalling = true
 
         detachItemObservers()
         av.replaceCurrentItem(with: item)
@@ -103,7 +103,7 @@ final class LocalStreamPlayer: ObservableObject {
         self.positionMs = max(0, positionMs)
     }
 
-    /// Phase F soft drift correction (narrow band; session throttles how often this fires).
+    /// Force a playback rate (session keeps 1.0 after join — mid-track tweaks skip).
     /// No-ops while paused so a rate reset cannot accidentally resume.
     func setPlaybackRate(_ rate: Float) {
         guard let player else { return }
@@ -174,7 +174,7 @@ final class LocalStreamPlayer: ObservableObject {
     private func ensurePlayer() -> AVPlayer {
         if let player { return player }
         let av = AVPlayer()
-        av.automaticallyWaitsToMinimizeStalling = false
+        av.automaticallyWaitsToMinimizeStalling = true
         let interval = CMTime(seconds: 0.5, preferredTimescale: 600)
         timeObserver = av.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
