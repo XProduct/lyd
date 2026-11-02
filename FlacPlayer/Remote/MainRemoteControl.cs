@@ -35,6 +35,11 @@ namespace FlacPlayer.Remote
             _vm.RemotePlaySong(songId);
         }
 
+        public void PlayAlbum(string albumId)
+        {
+            _vm.RemotePlayAlbum(albumId);
+        }
+
         public void Pause()
         {
             _vm.RemotePause();

@@ -262,6 +262,19 @@ namespace FlacPlayer.Remote
                     return;
                 }
 
+                if (method == "POST" && path == "/api/v1/playback/play-album")
+                {
+                    var body = ReadJson<PlayAlbumRequest>(context);
+                    if (body == null || string.IsNullOrEmpty(body.AlbumId))
+                    {
+                        WriteJson(context, 400, new { error = "albumId_required" });
+                        return;
+                    }
+                    InvokeOnUi(() => _control.PlayAlbum(body.AlbumId));
+                    WriteJson(context, 200, new { ok = true });
+                    return;
+                }
+
                 if (method == "POST" && path == "/api/v1/playback/pause")
                 {
                     InvokeOnUi(() => _control.Pause());
