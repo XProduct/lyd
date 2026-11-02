@@ -3,6 +3,9 @@ import SwiftUI
 struct SongsView: View {
     @EnvironmentObject private var session: LydSession
     @State private var query = ""
+    #if os(iOS)
+    @FocusState private var isSearchFocused: Bool
+    #endif
 
     private var filtered: [SongDto] {
         let songs = session.library.songs
@@ -19,22 +22,38 @@ struct SongsView: View {
         List {
             ScrollablePageTitle(title: "Songs")
                 .scrollableListTitleRow()
+                #if os(iOS)
+                .onTapGesture { dismissSearchKeyboard() }
+                #endif
 
             #if os(iOS)
             TextField("Title, artist, album", text: $query)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($isSearchFocused)
+                .onSubmit { dismissSearchKeyboard() }
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
             #endif
 
             ForEach(filtered) { song in
                 SongRow(song: song) {
+                    #if os(iOS)
+                    dismissSearchKeyboard()
+                    #endif
                     Task { await session.play(songId: song.id) }
                 }
             }
         }
         .scrollableNavigationTitle(hideBar: true)
         #if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { dismissSearchKeyboard() }
+            }
+        }
         .refreshable {
             await session.refreshLibrary(force: true)
         }
@@ -53,6 +72,12 @@ struct SongsView: View {
             }
         }
     }
+
+    #if os(iOS)
+    private func dismissSearchKeyboard() {
+        isSearchFocused = false
+    }
+    #endif
 }
 
 struct SongRow: View {
