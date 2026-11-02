@@ -60,6 +60,11 @@ namespace FlacPlayer.Remote
         public string SongId { get; set; }
     }
 
+    public sealed class PlayAlbumRequest
+    {
+        public string AlbumId { get; set; }
+    }
+
     public sealed class SeekRequest
     {
         public long PositionMs { get; set; }

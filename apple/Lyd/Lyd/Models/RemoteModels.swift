@@ -78,6 +78,10 @@ struct PlayRequest: Encodable {
     var songId: String
 }
 
+struct PlayAlbumRequest: Encodable {
+    var albumId: String
+}
+
 struct SeekRequest: Encodable {
     var positionMs: Int64
 }

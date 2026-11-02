@@ -55,6 +55,10 @@ final class LydAPIClient: @unchecked Sendable {
         try await post("api/v1/playback/play", body: PlayRequest(songId: songId))
     }
 
+    func playAlbum(albumId: String) async throws {
+        try await post("api/v1/playback/play-album", body: PlayAlbumRequest(albumId: albumId))
+    }
+
     func pause() async throws {
         try await postEmpty("api/v1/playback/pause")
     }

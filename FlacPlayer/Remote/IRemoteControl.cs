@@ -6,6 +6,7 @@ namespace FlacPlayer.Remote
         LibraryDto GetLibrary();
         PlaybackStateDto GetPlaybackState();
         void PlaySong(string songId);
+        void PlayAlbum(string albumId);
         void Pause();
         void PlayPause();
         void Next();

@@ -127,6 +127,17 @@ final class LydSession: ObservableObject {
         await mutate { try await $0.play(songId: songId) }
     }
 
+    /// Shuffle off + play album in disc/track order (Windows `play-album`).
+    func playAlbum(albumId: String) async {
+        selectedTab = .nowPlaying
+        await mutate { client in
+            // Explicit shuffle-off first so older hosts without play-album still get sequential intent
+            // when falling back isn't needed; play-album itself also clears shuffle.
+            try? await client.shuffle(enabled: false)
+            try await client.playAlbum(albumId: albumId)
+        }
+    }
+
     func playPause() async {
         await mutate { try await $0.playPause() }
     }
