@@ -248,12 +248,56 @@ final class LydSession: ObservableObject {
             case .unchanged:
                 markReachable()
             case .updated(let next):
-                library = next
+                applyLibraryUpdate(next, force: force)
                 markReachable()
             }
         } catch {
             markUnreachable(error)
         }
+    }
+
+    /// Avoid blanking tvOS/iOS grids: skip no-op publishes and keep stable album/song identities.
+    private func applyLibraryUpdate(_ next: LibraryDto, force: Bool) {
+        if !force,
+           library.revision >= 0,
+           next.revision == library.revision {
+            return
+        }
+
+        let sameAlbumIDs = library.albums.map(\.id) == next.albums.map(\.id)
+        let sameSongIDs = library.songs.map(\.id) == next.songs.map(\.id)
+        if !force, sameAlbumIDs, sameSongIDs {
+            let albumsEqual = zip(library.albums, next.albums).allSatisfy { $0 == $1 }
+            let songsEqual = zip(library.songs, next.songs).allSatisfy { $0 == $1 }
+            if albumsEqual, songsEqual {
+                // Equivalent catalog — bump revision only, keep the same album/song arrays.
+                if next.revision != library.revision {
+                    library = LibraryDto(
+                        songs: library.songs,
+                        albums: library.albums,
+                        revision: next.revision
+                    )
+                }
+                return
+            }
+        }
+
+        library = Self.mergingLibrary(current: library, next: next)
+    }
+
+    /// Reuse equal album/song values by id so SwiftUI ForEach identity stays calm across polls.
+    private static func mergingLibrary(current: LibraryDto, next: LibraryDto) -> LibraryDto {
+        let oldAlbums = Dictionary(uniqueKeysWithValues: current.albums.map { ($0.id, $0) })
+        let oldSongs = Dictionary(uniqueKeysWithValues: current.songs.map { ($0.id, $0) })
+        let albums = next.albums.map { album -> AlbumDto in
+            if let old = oldAlbums[album.id], old == album { return old }
+            return album
+        }
+        let songs = next.songs.map { song -> SongDto in
+            if let old = oldSongs[song.id], old == song { return old }
+            return song
+        }
+        return LibraryDto(songs: songs, albums: albums, revision: next.revision)
     }
 
     func refreshPlayback() async {
