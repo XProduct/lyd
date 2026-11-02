@@ -24,10 +24,7 @@ struct AlbumsView: View {
         ScrollView {
             LazyVGrid(columns: columns, alignment: .leading, spacing: gridSpacing) {
                 ForEach(session.library.albums) { album in
-                    NavigationLink(value: album) {
-                        AlbumCell(album: album, coverURL: session.coverURL(for: album))
-                    }
-                    .buttonStyle(.plain)
+                    AlbumNavigationCell(album: album, coverURL: session.coverURL(for: album))
                 }
             }
             .padding(gridPadding)
@@ -67,9 +64,38 @@ struct AlbumsView: View {
     }
 }
 
+/// Navigation wrapper so tvOS can apply a home-screen-style focus lift without purple label tint.
+private struct AlbumNavigationCell: View {
+    let album: AlbumDto
+    let coverURL: URL?
+    #if os(tvOS)
+    @FocusState private var isFocused: Bool
+    #endif
+
+    var body: some View {
+        NavigationLink(value: album) {
+            #if os(tvOS)
+            AlbumCell(album: album, coverURL: coverURL, isFocused: isFocused)
+            #else
+            AlbumCell(album: album, coverURL: coverURL, isFocused: false)
+            #endif
+        }
+        .buttonStyle(.plain)
+        #if os(tvOS)
+        .focused($isFocused)
+        .scaleEffect(isFocused ? 1.06 : 1.0, anchor: .center)
+        .offset(y: isFocused ? -8 : 0)
+        .shadow(color: .black.opacity(isFocused ? 0.45 : 0), radius: isFocused ? 18 : 0, y: isFocused ? 12 : 0)
+        .zIndex(isFocused ? 1 : 0)
+        .animation(.easeOut(duration: 0.18), value: isFocused)
+        #endif
+    }
+}
+
 struct AlbumCell: View {
     let album: AlbumDto
     let coverURL: URL?
+    var isFocused: Bool = false
 
     private var titleLineHeight: CGFloat {
         #if os(tvOS)
@@ -92,21 +118,28 @@ struct AlbumCell: View {
             CoverImage(url: coverURL)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                #if os(tvOS)
+                .scaleEffect(isFocused ? 1.03 : 1.0)
+                .shadow(color: .black.opacity(isFocused ? 0.35 : 0.12), radius: isFocused ? 14 : 4, y: isFocused ? 10 : 2)
+                #endif
 
             // Fixed two-line title slot so shorter titles don't shift neighbors.
+            // Explicit primary/secondary so app tint does not recolor labels (esp. tvOS links).
             Text(album.displayTitle)
                 .font(.headline)
+                .foregroundStyle(Color.primary)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, minHeight: titleLineHeight * 2, alignment: .topLeading)
 
             Text(album.displayArtist)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, minHeight: artistLineHeight, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .tint(Color.primary)
     }
 }
 
@@ -142,6 +175,6 @@ struct CoverImage: View {
     private var placeholder: some View {
         Image(systemName: "music.note")
             .font(.largeTitle)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color.secondary)
     }
 }

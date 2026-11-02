@@ -62,9 +62,10 @@ struct SettingsView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(host.displayTitle)
                                         .font(.headline)
+                                        .foregroundStyle(Color.primary)
                                     Text(host.endpointLabel)
                                         .font(.subheadline)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Color.secondary)
                                 }
                                 Spacer()
                                 if session.phase == .connected,

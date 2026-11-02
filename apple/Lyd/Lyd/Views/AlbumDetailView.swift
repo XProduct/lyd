@@ -14,11 +14,12 @@ struct AlbumDetailView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(album.displayTitle)
                             .font(.title2.bold())
+                            .foregroundStyle(Color.primary)
                         Text(album.displayArtist)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.secondary)
                         Text("\(session.songs(for: album).count) tracks")
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.secondary)
                     }
                 }
                 .padding(.vertical, 4)

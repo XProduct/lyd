@@ -56,17 +56,19 @@ struct SongRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(song.displayTitle)
                         .font(.body.weight(.medium))
+                        .foregroundStyle(Color.primary)
                     Text("\(song.displayArtist) · \(song.album ?? "Unknown Album")")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.secondary)
                         .lineLimit(1)
                 }
                 Spacer()
                 Image(systemName: "play.fill")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.secondary)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .tint(Color.primary)
     }
 }

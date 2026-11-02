@@ -24,21 +24,22 @@ struct NowPlayingView: View {
                 VStack(spacing: 6) {
                     Text(song?.displayTitle ?? "Nothing playing")
                         .font(.title2.bold())
+                        .foregroundStyle(Color.primary)
                         .multilineTextAlignment(.center)
                     Text(song?.displayArtist ?? session.selectedDisplayName)
                         .font(.title3)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.secondary)
                         .multilineTextAlignment(.center)
                     if let album = song?.album?.nilIfEmpty {
                         Text(album)
                             .font(.subheadline)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(Color.secondary)
                             .multilineTextAlignment(.center)
                     }
                     if let tech = song?.technicalSummary {
                         Text(tech)
                             .font(.footnote.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.top, 2)
                     }
@@ -87,6 +88,7 @@ struct NowPlayingView: View {
                     } label: {
                         Image(systemName: "backward.fill")
                             .font(.title)
+                            .foregroundStyle(Color.primary)
                     }
 
                     Button {
@@ -102,6 +104,7 @@ struct NowPlayingView: View {
                     } label: {
                         Image(systemName: "forward.fill")
                             .font(.title)
+                            .foregroundStyle(Color.primary)
                     }
                 }
                 .buttonStyle(.plain)
