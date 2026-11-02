@@ -24,6 +24,18 @@ final class LocalStreamPlayer: ObservableObject {
     /// (that was clobbering Phase F catch-up seeks and leaving iOS seconds behind).
     private var didApplyInitialStart = false
 
+    /// Playhead safe to report to the host. Before the join seek lands, AVPlayer often
+    /// samples ~0 — that must not rewind the desktop remote session clock.
+    var heartbeatPositionMs: Int64 {
+        if !didApplyInitialStart {
+            return max(positionMs, pendingStartMs)
+        }
+        return positionMs
+    }
+
+    /// True after the initial start seek/play has been applied for the current item.
+    var isReadyForHeartbeat: Bool { didApplyInitialStart }
+
     var onFinished: (() -> Void)?
     /// Fired once when the current item is ready and initial start/play has been applied.
     var onBecameReady: (() -> Void)?
@@ -179,7 +191,8 @@ final class LocalStreamPlayer: ObservableObject {
         timeObserver = av.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             Task { @MainActor in
                 guard let self else { return }
-                if time.isNumeric {
+                // Ignore pre-seek samples — they read near 0 and poison host timekeeping.
+                if self.didApplyInitialStart, time.isNumeric {
                     self.positionMs = Int64(time.seconds * 1000)
                 }
                 self.isPlaying = (self.player?.rate ?? 0) > 0.01

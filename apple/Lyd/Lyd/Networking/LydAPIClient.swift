@@ -177,14 +177,21 @@ final class LydAPIClient: @unchecked Sendable {
     }
 
     /// Phase E: report playhead while this device is the audio renderer.
-    func playbackHeartbeat(deviceId: String, positionMs: Int64, durationMs: Int64?, songId: String?) async throws {
+    func playbackHeartbeat(
+        deviceId: String,
+        positionMs: Int64,
+        durationMs: Int64?,
+        songId: String?,
+        isPlaying: Bool?
+    ) async throws {
         try await post(
             "api/v1/playback/heartbeat",
             body: PlaybackHeartbeatRequest(
                 deviceId: deviceId,
                 positionMs: positionMs,
                 durationMs: durationMs,
-                songId: songId
+                songId: songId,
+                isPlaying: isPlaying
             )
         )
     }
