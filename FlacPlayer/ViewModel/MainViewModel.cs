@@ -1694,6 +1694,41 @@ namespace FlacPlayer.ViewModel
             PlayOnDemand(song);
         }
 
+        /// <summary>
+        /// Match desktop album view: open album context, shuffle off, play from first track in disc/track order.
+        /// </summary>
+        public void RemotePlayAlbum(string albumId)
+        {
+            if (string.IsNullOrEmpty(albumId))
+            {
+                return;
+            }
+
+            Album album = Albums.FirstOrDefault(a => a.Id == albumId);
+            var albumSongs = new ObservableCollection<Song>(
+                Songs
+                    .Where(s => (s.AlbumId ?? AlbumIdHelper.From(s.Artist, s.Album)) == albumId)
+                    .OrderBy(s => s.Disc)
+                    .ThenBy(s => s.Track)
+                    .ThenBy(s => s.Title)
+                    .ToList());
+
+            if (albumSongs.Count == 0)
+            {
+                return;
+            }
+
+            if (album != null)
+            {
+                SelectedAlbum = album;
+            }
+            SelectedAlbumSongs = albumSongs;
+            IsSelectedAlbumVisible = true;
+            IsShuffleMode = false;
+            PlayOnDemand(albumSongs[0]);
+            RaisePropertyChanged(nameof(IsShuffleMode));
+        }
+
         public void RemotePause() { Pause(); RaisePropertyChanged(nameof(IsPlaying)); }
         public void RemotePlayPause() { TogglePlayPause(); }
         public void RemoteNext() { PlayNextSong(); }
@@ -1772,7 +1807,10 @@ namespace FlacPlayer.ViewModel
                 AlbumId = song.AlbumId ?? AlbumIdHelper.From(song.Artist, song.Album),
                 Track = song.Track,
                 Disc = song.Disc,
-                DurationMs = null
+                DurationMs = null,
+                Bitrate = song.Bitrate > 0 ? song.Bitrate : (double?)null,
+                SampleRate = song.SampleRate > 0 ? song.SampleRate : (double?)null,
+                Depth = song.Depth > 0 ? song.Depth : (double?)null
             };
         }
 

@@ -1,0 +1,20 @@
+{
+  "images" : [
+    {
+      "filename" : "AppIcon.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
+    },
+    {
+      "filename" : "AppIcon-tv.png",
+      "idiom" : "universal",
+      "platform" : "tvos",
+      "size" : "1280x768"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

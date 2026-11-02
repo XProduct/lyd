@@ -1,0 +1,456 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0506C1D70D25847FABE5D38F /* LydAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C3A272D98FF0F1F6FD7DE23 /* LydAPIClient.swift */; };
+		0A4A2EBC3522602B5F5F8702 /* ScrollablePageTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604486DFC0DAAD69074B62D8 /* ScrollablePageTitle.swift */; };
+		0F739D8FE390AB2C9921244B /* LibraryShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D07B052D5277D8A04356788 /* LibraryShellView.swift */; };
+		12EBC4CE9F64787D7EA7F047 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEBF08FBCCF05A0EDF5C6615 /* NowPlayingView.swift */; };
+		17DB355A8364554974DD1DF3 /* RemoteModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09359C12BD406BCB49DD1021 /* RemoteModels.swift */; };
+		46A12CC8CF745176F068B0E4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1D6701C326C5464EE745B69 /* RootView.swift */; };
+		50C1B6AB5F6A838BC5350306 /* BonjourBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C5259AE57643DF8EA50D1AD /* BonjourBrowser.swift */; };
+		5ACA02C5A371AFA81F6415EF /* SongsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842EF17DBA4EDFB98076618A /* SongsView.swift */; };
+		76BCE2ACFA20EDAF4DD238A0 /* LydTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503079D6F0B7EDDEB659E212 /* LydTheme.swift */; };
+		7E155FD11CAE5B6E471FB501 /* LydApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2130C77D671F2F6858A2055 /* LydApp.swift */; };
+		82C34CE2E7289248A893A091 /* JSONCoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F940C79140F1B643307E56C /* JSONCoding.swift */; };
+		842A706046DAE15FB9786977 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 95030A7DD9EF00DFCEF1C49A /* Assets.xcassets */; };
+		8E10D949B3463B500456CC70 /* LydSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45DA6D67EDBF1F966C690AA8 /* LydSession.swift */; };
+		9FEF5775C7369FB00D705F4D /* HostPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0566AE314F7F29C3B056C683 /* HostPreferences.swift */; };
+		A80FBBC4F5FF45B10EFF9BE9 /* AlbumDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8219F625C4FE4FD60BA9DFA /* AlbumDetailView.swift */; };
+		C1E2FCB602F06C4360DD2FA2 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9DBD052212D7F1F2CEB04AC /* SettingsView.swift */; };
+		F665F6C66252305189F32824 /* AlbumsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D731EE5D2703CB19BAA8673D /* AlbumsView.swift */; };
+		FC8B3C68636797411E479C8D /* HostAddress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69A97A9F19F97AC52B4389A8 /* HostAddress.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0566AE314F7F29C3B056C683 /* HostPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostPreferences.swift; sourceTree = "<group>"; };
+		09359C12BD406BCB49DD1021 /* RemoteModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteModels.swift; sourceTree = "<group>"; };
+		0F940C79140F1B643307E56C /* JSONCoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JSONCoding.swift; sourceTree = "<group>"; };
+		445E9EFCE0230D95058E2C17 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		45DA6D67EDBF1F966C690AA8 /* LydSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LydSession.swift; sourceTree = "<group>"; };
+		503079D6F0B7EDDEB659E212 /* LydTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LydTheme.swift; sourceTree = "<group>"; };
+		604486DFC0DAAD69074B62D8 /* ScrollablePageTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollablePageTitle.swift; sourceTree = "<group>"; };
+		69A97A9F19F97AC52B4389A8 /* HostAddress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostAddress.swift; sourceTree = "<group>"; };
+		6C5259AE57643DF8EA50D1AD /* BonjourBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonjourBrowser.swift; sourceTree = "<group>"; };
+		6D07B052D5277D8A04356788 /* LibraryShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryShellView.swift; sourceTree = "<group>"; };
+		842EF17DBA4EDFB98076618A /* SongsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongsView.swift; sourceTree = "<group>"; };
+		8C3A272D98FF0F1F6FD7DE23 /* LydAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LydAPIClient.swift; sourceTree = "<group>"; };
+		95030A7DD9EF00DFCEF1C49A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BEBF08FBCCF05A0EDF5C6615 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
+		D1D6701C326C5464EE745B69 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		D731EE5D2703CB19BAA8673D /* AlbumsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumsView.swift; sourceTree = "<group>"; };
+		D8219F625C4FE4FD60BA9DFA /* AlbumDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumDetailView.swift; sourceTree = "<group>"; };
+		D9DBD052212D7F1F2CEB04AC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		F2130C77D671F2F6858A2055 /* LydApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LydApp.swift; sourceTree = "<group>"; };
+		FB9F347DBA99979DF2B6B30C /* Lyd.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Lyd.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		2BE4B22066A1BD81515F555B /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				69A97A9F19F97AC52B4389A8 /* HostAddress.swift */,
+				0F940C79140F1B643307E56C /* JSONCoding.swift */,
+				8C3A272D98FF0F1F6FD7DE23 /* LydAPIClient.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		2DB37D0B8173122245DE5AAA /* Stores */ = {
+			isa = PBXGroup;
+			children = (
+				0566AE314F7F29C3B056C683 /* HostPreferences.swift */,
+				45DA6D67EDBF1F966C690AA8 /* LydSession.swift */,
+			);
+			path = Stores;
+			sourceTree = "<group>";
+		};
+		3DD7E18498DC82B9F7BC91C0 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				D8219F625C4FE4FD60BA9DFA /* AlbumDetailView.swift */,
+				D731EE5D2703CB19BAA8673D /* AlbumsView.swift */,
+				6D07B052D5277D8A04356788 /* LibraryShellView.swift */,
+				BEBF08FBCCF05A0EDF5C6615 /* NowPlayingView.swift */,
+				D1D6701C326C5464EE745B69 /* RootView.swift */,
+				604486DFC0DAAD69074B62D8 /* ScrollablePageTitle.swift */,
+				D9DBD052212D7F1F2CEB04AC /* SettingsView.swift */,
+				842EF17DBA4EDFB98076618A /* SongsView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		86004DA1BB42581D7B138123 /* Discovery */ = {
+			isa = PBXGroup;
+			children = (
+				6C5259AE57643DF8EA50D1AD /* BonjourBrowser.swift */,
+			);
+			path = Discovery;
+			sourceTree = "<group>";
+		};
+		87A0C389146DB3F58F7AC7FC /* Lyd */ = {
+			isa = PBXGroup;
+			children = (
+				86004DA1BB42581D7B138123 /* Discovery */,
+				F71992941AFAAD0D2A5BE709 /* Models */,
+				2BE4B22066A1BD81515F555B /* Networking */,
+				2DB37D0B8173122245DE5AAA /* Stores */,
+				905D630859C4D993B41FD7C2 /* Theme */,
+				3DD7E18498DC82B9F7BC91C0 /* Views */,
+				95030A7DD9EF00DFCEF1C49A /* Assets.xcassets */,
+				445E9EFCE0230D95058E2C17 /* Info.plist */,
+				F2130C77D671F2F6858A2055 /* LydApp.swift */,
+			);
+			path = Lyd;
+			sourceTree = "<group>";
+		};
+		8EF51869F9D193D1DE9D0746 = {
+			isa = PBXGroup;
+			children = (
+				87A0C389146DB3F58F7AC7FC /* Lyd */,
+				C2B3D7242C31A657FBF77B3E /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		905D630859C4D993B41FD7C2 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				503079D6F0B7EDDEB659E212 /* LydTheme.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		C2B3D7242C31A657FBF77B3E /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FB9F347DBA99979DF2B6B30C /* Lyd.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		F71992941AFAAD0D2A5BE709 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				09359C12BD406BCB49DD1021 /* RemoteModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E6181631E8C7E473D5CE7AD6 /* Lyd */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9B6835C1CA9FEAFDF0500F2F /* Build configuration list for PBXNativeTarget "Lyd" */;
+			buildPhases = (
+				64B6D8ADF6BED4DE755C7D10 /* Sources */,
+				2377265EAC99B2F770E2FB53 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Lyd;
+			packageProductDependencies = (
+			);
+			productName = Lyd;
+			productReference = FB9F347DBA99979DF2B6B30C /* Lyd.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A02F15F57666BF12099CC077 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					E6181631E8C7E473D5CE7AD6 = {
+						DevelopmentTeam = 899E8CDT3V;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 91B627CA404A0E02E29ABE2B /* Build configuration list for PBXProject "Lyd" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 8EF51869F9D193D1DE9D0746;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = C2B3D7242C31A657FBF77B3E /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E6181631E8C7E473D5CE7AD6 /* Lyd */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2377265EAC99B2F770E2FB53 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				842A706046DAE15FB9786977 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		64B6D8ADF6BED4DE755C7D10 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A80FBBC4F5FF45B10EFF9BE9 /* AlbumDetailView.swift in Sources */,
+				F665F6C66252305189F32824 /* AlbumsView.swift in Sources */,
+				50C1B6AB5F6A838BC5350306 /* BonjourBrowser.swift in Sources */,
+				FC8B3C68636797411E479C8D /* HostAddress.swift in Sources */,
+				9FEF5775C7369FB00D705F4D /* HostPreferences.swift in Sources */,
+				82C34CE2E7289248A893A091 /* JSONCoding.swift in Sources */,
+				0F739D8FE390AB2C9921244B /* LibraryShellView.swift in Sources */,
+				0506C1D70D25847FABE5D38F /* LydAPIClient.swift in Sources */,
+				7E155FD11CAE5B6E471FB501 /* LydApp.swift in Sources */,
+				8E10D949B3463B500456CC70 /* LydSession.swift in Sources */,
+				76BCE2ACFA20EDAF4DD238A0 /* LydTheme.swift in Sources */,
+				12EBC4CE9F64787D7EA7F047 /* NowPlayingView.swift in Sources */,
+				17DB355A8364554974DD1DF3 /* RemoteModels.swift in Sources */,
+				46A12CC8CF745176F068B0E4 /* RootView.swift in Sources */,
+				0A4A2EBC3522602B5F5F8702 /* ScrollablePageTitle.swift in Sources */,
+				C1E2FCB602F06C4360DD2FA2 /* SettingsView.swift in Sources */,
+				5ACA02C5A371AFA81F6415EF /* SongsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		09A3F88DF8B53DB4B9B34575 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 899E8CDT3V;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+			};
+			name = Release;
+		};
+		3BDD812701E50F384A7B568D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 899E8CDT3V;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Lyd/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Lyd;
+				INFOPLIST_KEY_NSBonjourServices = (
+					_lyd._tcp,
+				);
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Lyd discovers and controls your Lyd music player on the local network.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.xproduct.lyd.remote;
+				PRODUCT_NAME = Lyd;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator appletvos appletvsimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				TARGETED_DEVICE_FAMILY = "1,2,3";
+			};
+			name = Debug;
+		};
+		4D58C6BD9C16222D35E6C204 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 899E8CDT3V;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Lyd/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Lyd;
+				INFOPLIST_KEY_NSBonjourServices = (
+					_lyd._tcp,
+				);
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Lyd discovers and controls your Lyd music player on the local network.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.xproduct.lyd.remote;
+				PRODUCT_NAME = Lyd;
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator appletvos appletvsimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				TARGETED_DEVICE_FAMILY = "1,2,3";
+			};
+			name = Release;
+		};
+		C625971A41857B67AFE01732 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 899E8CDT3V;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TVOS_DEPLOYMENT_TARGET = 17.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		91B627CA404A0E02E29ABE2B /* Build configuration list for PBXProject "Lyd" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C625971A41857B67AFE01732 /* Debug */,
+				09A3F88DF8B53DB4B9B34575 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		9B6835C1CA9FEAFDF0500F2F /* Build configuration list for PBXNativeTarget "Lyd" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3BDD812701E50F384A7B568D /* Debug */,
+				4D58C6BD9C16222D35E6C204 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A02F15F57666BF12099CC077 /* Project object */;
+}
