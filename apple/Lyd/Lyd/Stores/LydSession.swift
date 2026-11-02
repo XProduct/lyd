@@ -74,13 +74,16 @@ final class LydSession: ObservableObject {
     private var pendingOutputUntil: Date?
     /// Phase F: at most one mid-track corrective hard seek per song (join/track start is separate).
     private var didCorrectiveTimelineSeekThisItem = false
-    /// Re-base host timeline onto the local clock at each poll so device clock skew
-    /// cannot invent multi-second lead (raw AnchorUnixMs − clientNow was the ~3s ahead bug).
+    /// Live host playhead sampled at poll receive — clock-safe fallback when sticky+offset unavailable.
     private var timelineSamplePositionMs: Int64 = 0
     private var timelineSampleAt: Date?
     private var timelineSamplePlaying = false
-    /// Rough clientUnix − hostUnix from last anchor (diagnostics / optional fallback).
-    private var hostClockSkewMs: Int64 = 0
+    /// clientUnix − hostUnix (positive ⇒ this device’s wall clock is ahead of the host).
+    private var hostClockOffsetMs: Int64 = 0
+    private var hasHostClockOffset = false
+    /// Last sticky pin from the host (transport / one-shot glue — not rewritten every poll).
+    private var stickyAnchorUnixMs: Int64?
+    private var stickyPositionAtAnchorMs: Int64?
 
     /// Phase F: prefer rate-adjust for drift; hard seek only for huge skew (and once per track).
     private enum TimelineSync {
@@ -242,7 +245,10 @@ final class LydSession: ObservableObject {
         timelineSampleAt = nil
         timelineSamplePositionMs = 0
         timelineSamplePlaying = false
-        hostClockSkewMs = 0
+        hostClockOffsetMs = 0
+        hasHostClockOffset = false
+        stickyAnchorUnixMs = nil
+        stickyPositionAtAnchorMs = nil
         registeredPlayers = []
         lastAppliedSeekGeneration = -1
         client = nil
@@ -621,6 +627,7 @@ final class LydSession: ObservableObject {
                 library = lib
                 noteLibraryContentLoaded(lib)
                 playback = try await api.playbackState()
+                noteHostTimelineSample(playback)
                 configureLocalPlayerIfNeeded()
                 await registerThisPlayer()
                 lastAppliedSeekGeneration = playback.seekGeneration ?? -1
@@ -628,9 +635,10 @@ final class LydSession: ObservableObject {
                 // Heal empty Playing on from host and push a real renderer before first play.
                 await ensurePlaybackOutputsReady()
                 if isLocalAudioOutput, let songId = playback.currentSongId {
+                    // Late join / restart: start on the clock-corrected host timeline.
                     await startLocalStream(
                         songId: songId,
-                        atMs: playback.positionMs,
+                        atMs: hostTimelineDesiredMs(),
                         autoplay: playback.isPlaying
                     )
                 }
@@ -1003,23 +1011,52 @@ final class LydSession: ObservableObject {
         }
     }
 
-    /// Capture host playhead at poll receive and re-base onto the local clock.
+    /// Capture sticky anchors + clock offset (or live-position fallback) at poll receive.
     private func noteHostTimelineSample(_ remote: PlaybackStateDto) {
-        let hostPos = remote.hostAnchoredPositionMs
-        timelineSamplePositionMs = hostPos
+        let receiveMs = Int64(Date().timeIntervalSince1970 * 1000)
+
+        if let server = remote.serverUnixMs, server > 0 {
+            // Preferred: host-provided serialize time (F1 clock-skew contract).
+            hostClockOffsetMs = receiveMs - server
+            hasHostClockOffset = true
+        } else if let anchor = remote.anchorUnixMs,
+                  let atAnchor = remote.positionAtAnchorMs,
+                  remote.isPlaying {
+            // Infer client−host until serverUnixMs ships: sticky derive on client clock vs live pos.
+            let derivedOnClientClock = atAnchor + (receiveMs - anchor)
+            hostClockOffsetMs = derivedOnClientClock - remote.positionMs
+            hasHostClockOffset = true
+        }
+
+        stickyAnchorUnixMs = remote.anchorUnixMs
+        stickyPositionAtAnchorMs = remote.positionAtAnchorMs
+
+        // Live playhead sample — fallback when sticky+offset path is unavailable.
+        timelineSamplePositionMs = remote.liveHostPositionMs
         timelineSampleAt = Date()
         timelineSamplePlaying = remote.isPlaying
-        if let anchor = remote.anchorUnixMs {
-            let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
-            // Positive ⇒ this device’s wall clock is ahead of the host’s.
-            hostClockSkewMs = nowMs - anchor
-        }
     }
 
-    /// Desired playhead: host position at last poll + local elapsed (ignores cross-device UTC skew).
+    /// Desired playhead on the host timeline, corrected for wall-clock skew.
     private func hostTimelineDesiredMs(at date: Date = Date()) -> Int64 {
+        if let anchor = stickyAnchorUnixMs ?? playback.anchorUnixMs,
+           let atAnchor = stickyPositionAtAnchorMs ?? playback.positionAtAnchorMs {
+            let playing = timelineSamplePlaying || playback.isPlaying
+            if !playing {
+                return max(0, atAnchor)
+            }
+            if hasHostClockOffset {
+                // sticky: positionAtAnchor + (correctedNow − anchorUnix)
+                let nowMs = Int64(date.timeIntervalSince1970 * 1000)
+                let correctedNowMs = nowMs - hostClockOffsetMs
+                return max(0, atAnchor + (correctedNowMs - anchor))
+            }
+            // Sticky without an offset estimate: never raw client wall vs AnchorUnixMs
+            // (~3s ahead / ~6s behind). Fall through to live positionMs sample.
+        }
+
         guard let sampleAt = timelineSampleAt else {
-            return playback.desiredPositionMs(at: date, hostClockSkewMs: hostClockSkewMs)
+            return max(0, playback.positionMs)
         }
         if !timelineSamplePlaying {
             return timelineSamplePositionMs

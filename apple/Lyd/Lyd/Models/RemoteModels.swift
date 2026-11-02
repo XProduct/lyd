@@ -101,30 +101,35 @@ struct PlaybackStateDto: Codable, Hashable {
     var positionAtAnchorMs: Int64?
     /// Host’s timeline estimate at serialize time (optional).
     var timelineMs: Int64?
+    /// Host UTC unix ms at serialize time — use for clockOffsetMs (clientReceive − serverUnixMs).
+    /// Optional until Windows ships the F1 clock-skew contract field.
+    var serverUnixMs: Int64?
 
-    /// Host-reported position at the timeline anchor (no client-clock math).
-    var hostAnchoredPositionMs: Int64 {
-        if let positionAtAnchorMs {
-            return max(0, positionAtAnchorMs)
-        }
+    /// Live host playhead for clock-safe fallback (not the sticky anchor position).
+    var liveHostPositionMs: Int64 {
         if let timelineMs {
             return max(0, timelineMs)
         }
         return max(0, positionMs)
     }
 
-    /// Raw wall-clock extrapolation. **Unsafe across devices** unless `hostClockSkewMs`
-    /// corrects for (clientUnixNow − hostUnixNow). Prefer session receive-time rebasing.
-    /// - Parameter hostClockSkewMs: estimate of clientNow − hostNow (positive ⇒ client clock ahead).
-    func desiredPositionMs(at date: Date = Date(), hostClockSkewMs: Int64 = 0) -> Int64 {
+    /// Sticky pin position (transport / glue). Do **not** treat as “current” across polls.
+    var stickyAnchorPositionMs: Int64? {
+        positionAtAnchorMs.map { max(0, $0) }
+    }
+
+    /// Sticky-anchor derive with clock correction.
+    /// `clockOffsetMs` = clientUnix − hostUnix (positive ⇒ client clock ahead of host).
+    func desiredPositionMs(at date: Date = Date(), clockOffsetMs: Int64 = 0) -> Int64 {
         if let anchor = anchorUnixMs, let atAnchor = positionAtAnchorMs {
             if !isPlaying {
                 return max(0, atAnchor)
             }
             let nowMs = Int64(date.timeIntervalSince1970 * 1000)
-            return max(0, atAnchor + (nowMs - anchor - hostClockSkewMs))
+            let correctedNowMs = nowMs - clockOffsetMs
+            return max(0, atAnchor + (correctedNowMs - anchor))
         }
-        return hostAnchoredPositionMs
+        return liveHostPositionMs
     }
 }
 
