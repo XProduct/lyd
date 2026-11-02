@@ -81,9 +81,9 @@ namespace FlacPlayer.Remote
             _vm.RemoteSetVolume(level);
         }
 
-        public void SetOutput(string deviceId, string deviceName)
+        public void SetOutput(OutputRequest request)
         {
-            _vm.RemoteSetOutput(deviceId, deviceName);
+            _vm.RemoteSetOutput(request);
         }
 
         public void ReportPlayerHeartbeat(string deviceId, long? positionMs, bool? isPlaying)

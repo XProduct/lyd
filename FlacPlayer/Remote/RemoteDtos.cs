@@ -57,11 +57,19 @@ namespace FlacPlayer.Remote
         /// <summary>Stable session id for this host process (one session per host in v1).</summary>
         public string SessionId { get; set; }
 
-        /// <summary>"host" or a remote player device id.</summary>
+        /// <summary>
+        /// Legacy single output id (first selected). Prefer <see cref="OutputDeviceIds"/> for multi-select.
+        /// </summary>
         public string OutputDeviceId { get; set; }
 
-        /// <summary>Display name for the current output target.</summary>
+        /// <summary>Legacy single output display name.</summary>
         public string OutputDeviceName { get; set; }
+
+        /// <summary>All devices currently selected to render audio (host + Apple players).</summary>
+        public string[] OutputDeviceIds { get; set; }
+
+        /// <summary>Selected outputs with display names — who is (allowed to be) playing.</summary>
+        public OutputDeviceDto[] OutputDevices { get; set; }
 
         /// <summary>Relative stream URL for the current song, when available.</summary>
         public string StreamUrl { get; set; }
@@ -71,6 +79,13 @@ namespace FlacPlayer.Remote
         /// when this value changes (command fan-out via shared session poll).
         /// </summary>
         public long TransportSeq { get; set; }
+    }
+
+    public sealed class OutputDeviceDto
+    {
+        public string DeviceId { get; set; }
+        public string Name { get; set; }
+        public bool IsHost { get; set; }
     }
 
     public sealed class RegisteredPlayerDto
@@ -124,11 +139,17 @@ namespace FlacPlayer.Remote
         public bool? Enabled { get; set; }
     }
 
-    /// <summary>POST /api/v1/playback/output — where audio should render.</summary>
+    /// <summary>POST /api/v1/playback/output — explicit multi-select of who renders audio.</summary>
     public sealed class OutputRequest
     {
-        /// <summary>"host" for Windows irrKlang, or a client device id for Apple AVPlayer.</summary>
+        /// <summary>Legacy single id ("host" or a client device id).</summary>
         public string DeviceId { get; set; }
         public string DeviceName { get; set; }
+
+        /// <summary>Multi-select device ids (preferred). Example: ["host","ipad-1"].</summary>
+        public string[] DeviceIds { get; set; }
+
+        /// <summary>Optional multi-select with display names.</summary>
+        public OutputDeviceDto[] Devices { get; set; }
     }
 }

@@ -234,7 +234,7 @@ namespace FlacPlayer.Remote
                 if (method == "POST" && path == "/api/v1/playback/output")
                 {
                     var body = ReadJson<OutputRequest>(context) ?? new OutputRequest();
-                    InvokeOnUi(() => _control.SetOutput(body.DeviceId, body.DeviceName));
+                    InvokeOnUi(() => _control.SetOutput(body));
                     WriteJson(context, 200, _control.GetPlaybackState());
                     return;
                 }
