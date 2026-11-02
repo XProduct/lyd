@@ -1,6 +1,13 @@
 import Foundation
 import Combine
 
+enum AppTab: Hashable {
+    case albums
+    case songs
+    case nowPlaying
+    case settings
+}
+
 @MainActor
 final class LydSession: ObservableObject {
     enum Phase: Equatable {
@@ -11,6 +18,7 @@ final class LydSession: ObservableObject {
     }
 
     @Published var phase: Phase = .pickingHost
+    @Published var selectedTab: AppTab = .albums
     @Published var selectedDisplayName: String = "Lyd"
     @Published var selectedEndpoint: String = ""
     @Published private(set) var library = LibraryDto(songs: [], albums: [], revision: -1)
@@ -115,6 +123,7 @@ final class LydSession: ObservableObject {
     }
 
     func play(songId: String) async {
+        selectedTab = .nowPlaying
         await mutate { try await $0.play(songId: songId) }
     }
 
