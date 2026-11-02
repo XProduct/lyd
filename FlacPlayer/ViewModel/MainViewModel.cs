@@ -44,6 +44,11 @@ namespace FlacPlayer.ViewModel
         /// <summary>Phase F1: host timeline anchor (Unix UTC ms) + song position at that instant.</summary>
         private long _anchorUnixMs;
         private long _positionAtAnchorMs;
+        /// <summary>
+        /// After host track start, one-shot re-pin once irrKlang playhead is real.
+        /// Continuous re-pin every state poll breaks sticky client derive (iOS falls behind).
+        /// </summary>
+        private bool _pendingTimelineGlue;
 
         /// <summary>
         /// Initializes a new instance of the MainViewModel class.
@@ -1482,6 +1487,7 @@ namespace FlacPlayer.ViewModel
                 _remotePositionWatch.Stop();
             }
             // Freeze timeline at the paused playhead (desired pos stays put while IsPlaying=false).
+            _pendingTimelineGlue = false;
             SetTimelineAnchor(GetSessionPositionMs());
             BumpTransportSeq();
         }
@@ -1519,6 +1525,7 @@ namespace FlacPlayer.ViewModel
         /// Phase F1: pin the shared host timeline. Clients compute
         /// desiredMs = positionAtAnchorMs + (nowUnixMs - anchorUnixMs) while playing.
         /// Late joiners catch up alone — joining an output does not reset this for others.
+        /// Anchors stay sticky between transport events (not rewritten every poll).
         /// </summary>
         private void SetTimelineAnchor(long positionMs)
         {
@@ -1545,6 +1552,42 @@ namespace FlacPlayer.ViewModel
                 remote += _remotePositionWatch.ElapsedMilliseconds;
             }
             return remote < 0 ? 0 : remote;
+        }
+
+        /// <summary>
+        /// One-shot: after host FLAC startup, re-pin sticky timeline to real PlayPosition and
+        /// bump seekGeneration so remotes re-derive. Do not re-pin every poll.
+        /// </summary>
+        private void MaybeGlueTimelineToHostPlayhead(bool playing, long livePositionMs)
+        {
+            if (!_pendingTimelineGlue || !playing || !IsHostInOutputSet)
+            {
+                return;
+            }
+
+            long now = UnixUtcNowMs();
+            long age = now - _anchorUnixMs;
+            if (age < 0)
+            {
+                age = 0;
+            }
+
+            // Wait until irrKlang has advanced or a short grace elapsed.
+            if (livePositionMs < 40 && age < 400)
+            {
+                return;
+            }
+
+            long derived = _positionAtAnchorMs + age;
+            long skew = livePositionMs - derived; // negative => wall timeline ahead of audio
+            _pendingTimelineGlue = false;
+            if (Math.Abs(skew) <= 100)
+            {
+                return;
+            }
+
+            SetTimelineAnchor(livePositionMs);
+            BumpSeekGeneration();
         }
 
         /// <summary>Never allow an empty output set (defaults to host).</summary>
@@ -1595,8 +1638,9 @@ namespace FlacPlayer.ViewModel
                 _remotePositionWatch.Reset();
             }
 
-            // New track / (re)start: timeline at position 0 for all outputs (F1).
+            // Sticky start at 0; if host is rendering, one-shot glue once PlayPosition is real.
             SetTimelineAnchor(0);
+            _pendingTimelineGlue = IsHostInOutputSet;
         }
 
         private void SilenceHostPlayer()
@@ -2027,14 +2071,7 @@ namespace FlacPlayer.ViewModel
                 DeviceName = o.Name
             }).ToArray();
 
-            // Phase F1: while playing, glue the shared timeline to the real session playhead
-            // (irrKlang PlayPosition when host is an output). Anchoring only at Play() lets
-            // wall-clock run ahead of FLAC startup latency, so Apple derived position leads
-            // host audio by ~seconds. Paused state keeps the freeze from Pause().
-            if (playing)
-            {
-                SetTimelineAnchor(position);
-            }
+            MaybeGlueTimelineToHostPlayhead(playing, position);
 
             return new PlaybackStateDto
             {
@@ -2182,6 +2219,7 @@ namespace FlacPlayer.ViewModel
             if (bumpTransport)
             {
                 // Host/UI seek: re-anchor timeline so remotes converge to the same playhead.
+                _pendingTimelineGlue = false;
                 SetTimelineAnchor(positionMs);
                 BumpTransportSeq();
                 BumpSeekGeneration();
