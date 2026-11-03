@@ -12,7 +12,12 @@ struct NowPlayingView: View {
     #if os(tvOS)
     @State private var cinemaMode = false
     @State private var idleReset = UUID()
+    /// True while focus is in the More chrome — Menu returns to primary instead of the tab bar.
+    @State private var isMoreActive = false
+    /// Bumped to ask the ScrollViewReader to snap back to the transport page.
+    @State private var returnToPrimaryTick = 0
     @FocusState private var cinemaSurfaceFocused: Bool
+    @FocusState private var playPauseFocused: Bool
     #endif
 
     private var song: SongDto? { session.playback.currentSong }
@@ -180,8 +185,6 @@ struct NowPlayingView: View {
                                 Color.clear.frame(height: 0).id("nowPlayingTop")
 
                                 // Primary fills one viewport so More sits just below the fold.
-                                // Do NOT insert a large empty spacer — tvOS focus cannot travel
-                                // back up across a non-focusable gap (got stuck in More).
                                 tvOSPrimaryPage
                                     .frame(minHeight: max(geo.size.height - 24, 680))
                                     .padding(.horizontal, 48)
@@ -206,6 +209,15 @@ struct NowPlayingView: View {
                                 }
                             }
                         }
+                        .onChange(of: returnToPrimaryTick) { _, _ in
+                            withAnimation(.easeOut(duration: 0.25)) {
+                                proxy.scrollTo("nowPlayingTop", anchor: .top)
+                            }
+                            // Focus transport after the scroll so Menu/Back is reliable.
+                            DispatchQueue.main.async {
+                                playPauseFocused = true
+                            }
+                        }
                     }
                 }
             }
@@ -226,7 +238,8 @@ struct NowPlayingView: View {
             UIApplication.shared.isIdleTimerDisabled = false
         }
         // Do not defaultFocus play/pause — let tvOS keep natural / last-control focus
-        // (reverses Phase D “always land on play”).
+        // (reverses Phase D “always land on play”). Explicit focus is only used when
+        // returning from More via Menu or the Now Playing back control.
         // Track / play-state changes must NOT exit cinema — art/metadata update in place.
         // Only remote interaction (below) calls bumpIdleTimer().
         .onChange(of: idleReset) { _, token in
@@ -259,12 +272,29 @@ struct NowPlayingView: View {
             bumpIdleTimer()
             Task { await session.playPause() }
         }
-        .onExitCommand {
-            bumpIdleTimer()
-        }
+        // Menu: exit cinema, or jump back to primary from More. On primary, leave Menu
+        // unbound so the system can move to the tab bar.
+        .modifier(TVNowPlayingExitModifier(
+            cinemaMode: cinemaMode,
+            isMoreActive: isMoreActive,
+            onExitCinema: { bumpIdleTimer() },
+            onExitMore: { returnToPrimaryNowPlaying() }
+        ))
         .simultaneousGesture(
             TapGesture().onEnded { bumpIdleTimer() }
         )
+    }
+
+    /// Scroll + focus back to the main transport page (Menu or visible Back control).
+    private func returnToPrimaryNowPlaying() {
+        bumpIdleTimer()
+        isMoreActive = false
+        returnToPrimaryTick += 1
+    }
+
+    private func noteMoreFocus() {
+        isMoreActive = true
+        bumpIdleTimer()
     }
 
     private var ambientWash: some View {
@@ -410,22 +440,34 @@ struct NowPlayingView: View {
         .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// Shuffle, volume, and host status — reached by scrolling / focus moving down.
-    /// One focusSection for the whole More block so up from its first control can
-    /// leave to the primary transport section (nested sections trapped focus before).
+    /// Shuffle, volume, Playing on — below the fold. Escape via the Now Playing
+    /// control or Menu (not by fighting focus up through a ScrollView gap).
     private var tvOSSecondarySection: some View {
         VStack(alignment: .leading, spacing: 28) {
-            Text("More")
-                .font(.title.bold())
-                .foregroundStyle(Color.primary)
-                .accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("More")
+                    .font(.title.bold())
+                    .foregroundStyle(Color.primary)
+                    .accessibilityAddTraits(.isHeader)
+
+                TVNowPlayingButton(
+                    title: "Now Playing",
+                    systemImage: "chevron.up",
+                    emphasized: false,
+                    onBecameFocused: { noteMoreFocus() }
+                ) {
+                    returnToPrimaryNowPlaying()
+                }
+                .accessibilityHint("Returns to playback controls")
+            }
 
             TVNowPlayingButton(
                 title: session.playback.shuffle ? "Shuffle On" : "Shuffle Off",
                 systemImage: "shuffle",
-                emphasized: session.playback.shuffle
+                emphasized: session.playback.shuffle,
+                onBecameFocused: { noteMoreFocus() }
             ) {
-                bumpIdleTimer()
+                noteMoreFocus()
                 Task { await session.toggleShuffle() }
             }
 
@@ -448,9 +490,10 @@ struct NowPlayingView: View {
                         subtitle: "Windows Lyd",
                         systemImage: "desktopcomputer",
                         selected: session.isHostAudioOutput,
-                        singleSelect: !session.allowMultiOutput
+                        singleSelect: !session.allowMultiOutput,
+                        onBecameFocused: { noteMoreFocus() }
                     ) {
-                        bumpIdleTimer()
+                        noteMoreFocus()
                         Task {
                             await session.setOutputTarget(
                                 deviceId: LydOutputIds.host,
@@ -463,9 +506,10 @@ struct NowPlayingView: View {
                         subtitle: DeviceIdentity.displayName,
                         systemImage: "appletv",
                         selected: session.isLocalAudioOutput,
-                        singleSelect: !session.allowMultiOutput
+                        singleSelect: !session.allowMultiOutput,
+                        onBecameFocused: { noteMoreFocus() }
                     ) {
-                        bumpIdleTimer()
+                        noteMoreFocus()
                         Task {
                             await session.setOutputTarget(
                                 deviceId: DeviceIdentity.deviceId,
@@ -479,9 +523,10 @@ struct NowPlayingView: View {
                             subtitle: player.platformLabel,
                             systemImage: "hifispeaker",
                             selected: session.outputTargetIds.contains(player.deviceId),
-                            singleSelect: !session.allowMultiOutput
+                            singleSelect: !session.allowMultiOutput,
+                            onBecameFocused: { noteMoreFocus() }
                         ) {
-                            bumpIdleTimer()
+                            noteMoreFocus()
                             Task {
                                 await session.setOutputTarget(
                                     deviceId: player.deviceId,
@@ -497,16 +542,24 @@ struct NowPlayingView: View {
                 Text(session.usesDeviceVolume ? "Device volume" : "Host volume")
                     .font(.title3)
                     .foregroundStyle(Color.secondary)
-                TVNowPlayingButton(title: "Down", systemImage: "speaker.wave.1.fill") {
-                    bumpIdleTimer()
+                TVNowPlayingButton(
+                    title: "Down",
+                    systemImage: "speaker.wave.1.fill",
+                    onBecameFocused: { noteMoreFocus() }
+                ) {
+                    noteMoreFocus()
                     Task { await session.setVolume(max(0, session.playback.volume - 0.05)) }
                 }
                 Text("\(Int((session.playback.volume * 100).rounded()))%")
                     .font(.title3.monospacedDigit())
                     .foregroundStyle(Color.primary)
                     .frame(minWidth: 72, alignment: .center)
-                TVNowPlayingButton(title: "Up", systemImage: "speaker.wave.3.fill") {
-                    bumpIdleTimer()
+                TVNowPlayingButton(
+                    title: "Up",
+                    systemImage: "speaker.wave.3.fill",
+                    onBecameFocused: { noteMoreFocus() }
+                ) {
+                    noteMoreFocus()
                     Task { await session.setVolume(min(1, session.playback.volume + 0.05)) }
                 }
             }
@@ -623,6 +676,12 @@ struct NowPlayingView: View {
                         value: song?.albumId ?? song?.id
                     )
             }
+            #if os(tvOS)
+            .focused($playPauseFocused)
+            .onChange(of: playPauseFocused) { _, focused in
+                if focused { isMoreActive = false }
+            }
+            #endif
 
             Button {
                 noteUserActivity()
@@ -768,11 +827,34 @@ struct NowPlayingView: View {
 }
 
 #if os(tvOS)
+/// Intercepts Menu only while cinema or More is active so primary keeps system tab-bar exit.
+private struct TVNowPlayingExitModifier: ViewModifier {
+    let cinemaMode: Bool
+    let isMoreActive: Bool
+    let onExitCinema: () -> Void
+    let onExitMore: () -> Void
+
+    func body(content: Content) -> some View {
+        if cinemaMode || isMoreActive {
+            content.onExitCommand {
+                if cinemaMode {
+                    onExitCinema()
+                } else {
+                    onExitMore()
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
 /// Focus-safe labeled control for the tvOS Now Playing sidebar (shuffle / volume).
 private struct TVNowPlayingButton: View {
     let title: String
     let systemImage: String
     var emphasized: Bool = false
+    var onBecameFocused: (() -> Void)? = nil
     let action: () -> Void
     @FocusState private var isFocused: Bool
 
@@ -787,6 +869,9 @@ private struct TVNowPlayingButton: View {
         }
         .buttonStyle(.card)
         .focused($isFocused)
+        .onChange(of: isFocused) { _, focused in
+            if focused { onBecameFocused?() }
+        }
     }
 }
 
@@ -797,6 +882,7 @@ private struct TVPlayingOnRow: View {
     let systemImage: String
     let selected: Bool
     var singleSelect: Bool = false
+    var onBecameFocused: (() -> Void)? = nil
     let action: () -> Void
     @FocusState private var isFocused: Bool
 
@@ -839,6 +925,9 @@ private struct TVPlayingOnRow: View {
         }
         .buttonStyle(.plain)
         .focused($isFocused)
+        .onChange(of: isFocused) { _, focused in
+            if focused { onBecameFocused?() }
+        }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(isFocused ? Color.white : Color.primary.opacity(selected ? 0.12 : 0.06))
