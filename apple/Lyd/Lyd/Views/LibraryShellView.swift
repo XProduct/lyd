@@ -47,9 +47,17 @@ struct LibraryShellView: View {
         #else
         // System tab bar selection colors on tvOS (no Lyd purple).
         .tint(.primary)
-        // Idle cinema: hide the tab bar for a true full-screen Now Playing stage.
-        .toolbar(session.isNowPlayingCinemaActive ? .hidden : .automatic, for: .tabBar)
-        .animation(.easeInOut(duration: 0.35), value: session.isNowPlayingCinemaActive)
+        // `.toolbar(.hidden, for: .tabBar)` does nothing to tvOS TabView chrome — hide the
+        // real UITabBar via UIKit when idle cinema is active.
+        .background {
+            TVTabBarVisibilityBridge(hidden: session.isNowPlayingCinemaActive)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+        .onChange(of: session.isNowPlayingCinemaActive) { _, hidden in
+            // Re-assert after SwiftUI layout passes that tend to resurrect the bar.
+            TVTabBarVisibilityBridge.setHidden(hidden)
+        }
         #endif
     }
 }
