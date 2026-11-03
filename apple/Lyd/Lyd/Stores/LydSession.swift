@@ -29,6 +29,8 @@ final class LydSession: ObservableObject {
     @Published var selectedTab: AppTab = .albums
     /// Bumped when navigating to Now Playing from a play action — view scrolls to top.
     @Published private(set) var nowPlayingScrollToken: UInt64 = 0
+    /// tvOS idle cinema — shell hides the tab bar while this is true.
+    @Published var isNowPlayingCinemaActive = false
     @Published var selectedDisplayName: String = "Lyd"
     @Published var selectedEndpoint: String = ""
     @Published private(set) var library = LibraryDto(songs: [], albums: [], revision: -1)
