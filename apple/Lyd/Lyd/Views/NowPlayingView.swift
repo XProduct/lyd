@@ -242,6 +242,8 @@ struct NowPlayingView: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            cinemaMode = false
+            session.isNowPlayingCinemaActive = false
         }
         // Do not defaultFocus play/pause — let tvOS keep natural / last-control focus
         // (reverses Phase D “always land on play”). Explicit focus is only used when
@@ -267,6 +269,7 @@ struct NowPlayingView: View {
             }
         }
         .onChange(of: cinemaMode) { _, enabled in
+            session.isNowPlayingCinemaActive = enabled
             if enabled {
                 isMoreActive = false
                 cinemaSurfaceFocused = true
@@ -602,6 +605,7 @@ struct NowPlayingView: View {
 
     private func bumpIdleTimer() {
         cinemaMode = false
+        session.isNowPlayingCinemaActive = false
         idleReset = UUID()
         // Leave transport focus alone — do not yank the Siri Remote back to play/pause.
     }

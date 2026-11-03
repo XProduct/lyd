@@ -47,6 +47,9 @@ struct LibraryShellView: View {
         #else
         // System tab bar selection colors on tvOS (no Lyd purple).
         .tint(.primary)
+        // Idle cinema: hide the tab bar for a true full-screen Now Playing stage.
+        .toolbar(session.isNowPlayingCinemaActive ? .hidden : .automatic, for: .tabBar)
+        .animation(.easeInOut(duration: 0.35), value: session.isNowPlayingCinemaActive)
         #endif
     }
 }
