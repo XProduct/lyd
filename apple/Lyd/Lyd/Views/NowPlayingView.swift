@@ -10,16 +10,9 @@ struct NowPlayingView: View {
     @State private var isScrubbing = false
     @State private var volumeDraft: Double = 0.5
     #if os(tvOS)
-    private enum TransportFocus: Hashable {
-        case previous
-        case playPause
-        case next
-    }
-
     @State private var cinemaMode = false
     @State private var idleReset = UUID()
     @FocusState private var cinemaSurfaceFocused: Bool
-    @FocusState private var transportFocus: TransportFocus?
     #endif
 
     private var song: SongDto? { session.playback.currentSong }
@@ -227,13 +220,13 @@ struct NowPlayingView: View {
         .onAppear {
             volumeDraft = session.playback.volume
             bumpIdleTimer()
-            transportFocus = .playPause
             UIApplication.shared.isIdleTimerDisabled = true
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
         }
-        .defaultFocus($transportFocus, .playPause)
+        // Do not defaultFocus play/pause — let tvOS keep natural / last-control focus
+        // (reverses Phase D “always land on play”).
         // Track / play-state changes must NOT exit cinema — art/metadata update in place.
         // Only remote interaction (below) calls bumpIdleTimer().
         .onChange(of: idleReset) { _, token in
@@ -434,56 +427,69 @@ struct NowPlayingView: View {
                 Task { await session.toggleShuffle() }
             }
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Playing on")
-                    .font(.title3)
-                    .foregroundStyle(Color.secondary)
-                Text(session.allowMultiOutput
-                     ? "Select every device that should play audio. Uncheck This device for remote-only control."
-                     : "Choose one device for audio. Turn on Allow multi-room output on the host to sync rooms.")
-                    .font(.body)
-                    .foregroundStyle(Color.secondary)
-                TVNowPlayingButton(
-                    title: session.selectedDisplayName.isEmpty ? "Host" : session.selectedDisplayName,
-                    systemImage: "desktopcomputer",
-                    emphasized: session.isHostAudioOutput
-                ) {
-                    bumpIdleTimer()
-                    Task {
-                        await session.setOutputTarget(
-                            deviceId: LydOutputIds.host,
-                            enabled: !session.isHostAudioOutput
-                        )
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Playing on")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Color.primary)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(session.allowMultiOutput
+                         ? "Devices that should play audio"
+                         : "One device plays audio")
+                        .font(.callout)
+                        .foregroundStyle(Color.secondary)
                 }
-                TVNowPlayingButton(
-                    title: "This device",
-                    systemImage: "appletv",
-                    emphasized: session.isLocalAudioOutput
-                ) {
-                    bumpIdleTimer()
-                    Task {
-                        await session.setOutputTarget(
-                            deviceId: DeviceIdentity.deviceId,
-                            enabled: !session.isLocalAudioOutput
-                        )
-                    }
-                }
-                ForEach(session.registeredPlayers) { player in
-                    TVNowPlayingButton(
-                        title: player.displayName,
-                        systemImage: "hifispeaker",
-                        emphasized: session.outputTargetIds.contains(player.deviceId)
+
+                VStack(spacing: 12) {
+                    TVPlayingOnRow(
+                        title: session.selectedDisplayName.isEmpty ? "Host" : session.selectedDisplayName,
+                        subtitle: "Windows Lyd",
+                        systemImage: "desktopcomputer",
+                        selected: session.isHostAudioOutput,
+                        singleSelect: !session.allowMultiOutput
                     ) {
                         bumpIdleTimer()
                         Task {
                             await session.setOutputTarget(
-                                deviceId: player.deviceId,
-                                enabled: !session.outputTargetIds.contains(player.deviceId)
+                                deviceId: LydOutputIds.host,
+                                enabled: !session.isHostAudioOutput
                             )
                         }
                     }
+                    TVPlayingOnRow(
+                        title: "This Apple TV",
+                        subtitle: DeviceIdentity.displayName,
+                        systemImage: "appletv",
+                        selected: session.isLocalAudioOutput,
+                        singleSelect: !session.allowMultiOutput
+                    ) {
+                        bumpIdleTimer()
+                        Task {
+                            await session.setOutputTarget(
+                                deviceId: DeviceIdentity.deviceId,
+                                enabled: !session.isLocalAudioOutput
+                            )
+                        }
+                    }
+                    ForEach(session.registeredPlayers) { player in
+                        TVPlayingOnRow(
+                            title: player.displayName,
+                            subtitle: player.platformLabel,
+                            systemImage: "hifispeaker",
+                            selected: session.outputTargetIds.contains(player.deviceId),
+                            singleSelect: !session.allowMultiOutput
+                        ) {
+                            bumpIdleTimer()
+                            Task {
+                                await session.setOutputTarget(
+                                    deviceId: player.deviceId,
+                                    enabled: !session.outputTargetIds.contains(player.deviceId)
+                                )
+                            }
+                        }
+                    }
                 }
+                .focusSection()
             }
 
             HStack(spacing: 20) {
@@ -528,8 +534,7 @@ struct NowPlayingView: View {
     private func bumpIdleTimer() {
         cinemaMode = false
         idleReset = UUID()
-        // Prefer play/pause after waking from cinema or any remote activity reset.
-        transportFocus = .playPause
+        // Leave transport focus alone — do not yank the Siri Remote back to play/pause.
     }
 
     private func nextCoverURL(for song: SongDto) -> URL? {
@@ -603,9 +608,6 @@ struct NowPlayingView: View {
                     .foregroundStyle(Color.primary)
                     .frame(width: 72, height: 72)
             }
-            #if os(tvOS)
-            .focused($transportFocus, equals: .previous)
-            #endif
 
             Button {
                 noteUserActivity()
@@ -619,9 +621,6 @@ struct NowPlayingView: View {
                         value: song?.albumId ?? song?.id
                     )
             }
-            #if os(tvOS)
-            .focused($transportFocus, equals: .playPause)
-            #endif
 
             Button {
                 noteUserActivity()
@@ -632,9 +631,6 @@ struct NowPlayingView: View {
                     .foregroundStyle(Color.primary)
                     .frame(width: 72, height: 72)
             }
-            #if os(tvOS)
-            .focused($transportFocus, equals: .next)
-            #endif
         }
         .buttonStyle(.plain)
         #if os(tvOS)
@@ -770,7 +766,7 @@ struct NowPlayingView: View {
 }
 
 #if os(tvOS)
-/// Focus-safe labeled control for the tvOS Now Playing sidebar.
+/// Focus-safe labeled control for the tvOS Now Playing sidebar (shuffle / volume).
 private struct TVNowPlayingButton: View {
     let title: String
     let systemImage: String
@@ -789,6 +785,76 @@ private struct TVNowPlayingButton: View {
         }
         .buttonStyle(.card)
         .focused($isFocused)
+    }
+}
+
+/// Native-feeling Playing on row — list layout + trailing check, not a chunky card stack.
+private struct TVPlayingOnRow: View {
+    let title: String
+    var subtitle: String?
+    let systemImage: String
+    let selected: Bool
+    var singleSelect: Bool = false
+    let action: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 20) {
+                Image(systemName: systemImage)
+                    .font(.title2)
+                    .frame(width: 36, alignment: .center)
+                    .foregroundStyle(isFocused ? Color.black : Color.secondary)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(isFocused ? Color.black : Color.primary)
+                        .lineLimit(1)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.callout)
+                            .foregroundStyle(isFocused ? Color.black.opacity(0.65) : Color.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 12)
+
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(
+                        isFocused
+                            ? Color.black
+                            : (selected ? Color.primary : Color.secondary.opacity(0.45))
+                    )
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focused($isFocused)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(isFocused ? Color.white : Color.primary.opacity(selected ? 0.12 : 0.06))
+        )
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+        .accessibilityHint(singleSelect ? "Selects this device only" : "Toggles this device in Playing on")
+    }
+}
+
+private extension PlayerDto {
+    var platformLabel: String? {
+        guard let platform, !platform.isEmpty else { return nil }
+        switch platform.lowercased() {
+        case "ios": return "iPhone or iPad"
+        case "tvos": return "Apple TV"
+        case "unknown": return nil
+        default: return platform
+        }
     }
 }
 #endif
