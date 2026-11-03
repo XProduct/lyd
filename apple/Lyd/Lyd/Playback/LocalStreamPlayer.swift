@@ -5,12 +5,21 @@ import Combine
 /// Phase E: AVPlayer that pulls original files from `GET /api/v1/stream/songs/{id}`.
 @MainActor
 final class LocalStreamPlayer: ObservableObject {
+    /// Digital attenuator applied only on tvOS stream output. Full-res FLAC over AVPlayer
+    /// is much hotter than typical Apple TV apps; keep Siri Remote / soundbar system volume.
+    #if os(tvOS)
+    private static let outputGain: Float = 0.15
+    #else
+    private static let outputGain: Float = 1.0
+    #endif
+
     @Published private(set) var isPlaying = false
     @Published private(set) var positionMs: Int64 = 0
     @Published private(set) var durationMs: Int64 = 0
     @Published private(set) var currentSongId: String?
+    /// User-facing level 0…1 (Device volume UI). Actual AVPlayer volume is `volume * outputGain`.
     @Published var volume: Float = 1.0 {
-        didSet { player?.volume = volume }
+        didSet { applyOutputVolume() }
     }
 
     private var player: AVPlayer?
@@ -66,12 +75,17 @@ final class LocalStreamPlayer: ObservableObject {
         item.preferredForwardBufferDuration = 4.0
 
         let av = ensurePlayer()
-        av.volume = volume
+        applyOutputVolume(to: av)
         av.automaticallyWaitsToMinimizeStalling = true
 
         detachItemObservers()
         av.replaceCurrentItem(with: item)
         attachItemObservers(item: item, player: av)
+    }
+
+    private func applyOutputVolume(to av: AVPlayer? = nil) {
+        let target = (av ?? player)
+        target?.volume = min(max(volume, 0), 1) * Self.outputGain
     }
 
     func playPause() {
