@@ -162,8 +162,6 @@ struct NowPlayingView: View {
     #if os(tvOS)
     private var tvOSBody: some View {
         GeometryReader { geo in
-            let secondaryOffset = max(geo.size.height * 0.9, 700)
-
             ZStack {
                 LydTheme.nowPlayingBackground
                     .ignoresSafeArea()
@@ -181,19 +179,21 @@ struct NowPlayingView: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 Color.clear.frame(height: 0).id("nowPlayingTop")
 
+                                // Primary fills one viewport so More sits just below the fold.
+                                // Do NOT insert a large empty spacer — tvOS focus cannot travel
+                                // back up across a non-focusable gap (got stuck in More).
                                 tvOSPrimaryPage
-                                    .frame(minHeight: max(geo.size.height, 720))
+                                    .frame(minHeight: max(geo.size.height - 24, 680))
                                     .padding(.horizontal, 48)
                                     .padding(.top, 12)
-                                    .padding(.bottom, 12)
-
-                                Color.clear
-                                    .frame(height: secondaryOffset)
-                                    .accessibilityHidden(true)
+                                    .padding(.bottom, 24)
+                                    .id("nowPlayingPrimary")
 
                                 tvOSSecondarySection
                                     .padding(.horizontal, 48)
+                                    .padding(.top, 8)
                                     .padding(.bottom, 80)
+                                    .id("nowPlayingMore")
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -410,7 +410,9 @@ struct NowPlayingView: View {
         .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// Shuffle, volume, and host status — reached by scrolling down.
+    /// Shuffle, volume, and host status — reached by scrolling / focus moving down.
+    /// One focusSection for the whole More block so up from its first control can
+    /// leave to the primary transport section (nested sections trapped focus before).
     private var tvOSSecondarySection: some View {
         VStack(alignment: .leading, spacing: 28) {
             Text("More")
@@ -489,7 +491,6 @@ struct NowPlayingView: View {
                         }
                     }
                 }
-                .focusSection()
             }
 
             HStack(spacing: 20) {
@@ -529,6 +530,7 @@ struct NowPlayingView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .focusSection()
     }
 
     private func bumpIdleTimer() {
