@@ -184,13 +184,19 @@ struct NowPlayingView: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 Color.clear.frame(height: 0).id("nowPlayingTop")
 
-                                // Primary fills one viewport so More sits just below the fold.
+                                // Primary fills one cinema-style viewport.
                                 tvOSPrimaryPage
                                     .frame(minHeight: max(geo.size.height - 24, 680))
                                     .padding(.horizontal, 48)
                                     .padding(.top, 12)
                                     .padding(.bottom, 24)
                                     .id("nowPlayingPrimary")
+
+                                // Large gap so More stays off-screen until the user scrolls.
+                                // Escape from More is Menu / Now Playing chevron — not focus-up.
+                                Color.clear
+                                    .frame(height: max(geo.size.height * 0.85, 640))
+                                    .accessibilityHidden(true)
 
                                 tvOSSecondarySection
                                     .padding(.horizontal, 48)
@@ -253,6 +259,7 @@ struct NowPlayingView: View {
                 try? await Task.sleep(nanoseconds: UInt64(LydMotion.cinemaIdleSeconds * 1_000_000_000))
                 guard !Task.isCancelled, captured == idleReset else { return }
                 guard session.effectiveIsPlaying else { return }
+                isMoreActive = false
                 withAnimation(.easeInOut(duration: 0.6)) {
                     cinemaMode = true
                 }
@@ -261,6 +268,7 @@ struct NowPlayingView: View {
         }
         .onChange(of: cinemaMode) { _, enabled in
             if enabled {
+                isMoreActive = false
                 cinemaSurfaceFocused = true
             }
         }
@@ -272,17 +280,23 @@ struct NowPlayingView: View {
             bumpIdleTimer()
             Task { await session.playPause() }
         }
-        // Menu: exit cinema, or jump back to primary from More. On primary, leave Menu
-        // unbound so the system can move to the tab bar.
-        .modifier(TVNowPlayingExitModifier(
-            cinemaMode: cinemaMode,
-            isMoreActive: isMoreActive,
-            onExitCinema: { bumpIdleTimer() },
-            onExitMore: { returnToPrimaryNowPlaying() }
-        ))
+        // Stable onExitCommand (optional perform) — do NOT swap ViewModifier branches on
+        // cinemaMode, which remounted the tree and immediately cancelled idle cinema.
+        .onExitCommand(perform: tvOSExitAction)
         .simultaneousGesture(
             TapGesture().onEnded { bumpIdleTimer() }
         )
+    }
+
+    /// Menu: exit cinema, or return from More to transport. Nil on primary → system tab bar.
+    private var tvOSExitAction: (() -> Void)? {
+        if cinemaMode {
+            return { bumpIdleTimer() }
+        }
+        if isMoreActive {
+            return { returnToPrimaryNowPlaying() }
+        }
+        return nil
     }
 
     /// Scroll + focus back to the main transport page (Menu or visible Back control).
@@ -827,28 +841,6 @@ struct NowPlayingView: View {
 }
 
 #if os(tvOS)
-/// Intercepts Menu only while cinema or More is active so primary keeps system tab-bar exit.
-private struct TVNowPlayingExitModifier: ViewModifier {
-    let cinemaMode: Bool
-    let isMoreActive: Bool
-    let onExitCinema: () -> Void
-    let onExitMore: () -> Void
-
-    func body(content: Content) -> some View {
-        if cinemaMode || isMoreActive {
-            content.onExitCommand {
-                if cinemaMode {
-                    onExitCinema()
-                } else {
-                    onExitMore()
-                }
-            }
-        } else {
-            content
-        }
-    }
-}
-
 /// Focus-safe labeled control for the tvOS Now Playing sidebar (shuffle / volume).
 private struct TVNowPlayingButton: View {
     let title: String
